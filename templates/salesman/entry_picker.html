@@ -8,30 +8,19 @@
     <h1 class="text-xl font-bold text-slate-900 mb-1">Naya Entry</h1>
     <p class="text-sm text-slate-500 mb-4">Kis dukaan ke liye?</p>
 
-    <form method="get" class="mb-3">
+    {# Live HTMX search. #}
+    <div class="mb-3">
         <input type="search" name="q" value="{{ search }}" placeholder="Dukaan dhundein…"
                class="w-full px-4 py-3 text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
-               autocomplete="off" autofocus>
-    </form>
+               autocomplete="off" autofocus
+               hx-get="{% url 'core:entry_new_picker' %}"
+               hx-trigger="keyup changed delay:300ms, search"
+               hx-target="#picker-results"
+               hx-push-url="true">
+    </div>
 
-    <div class="space-y-2">
-        {% for r in retailers %}
-        <a href="{% url 'core:entry_new' r.pk %}"
-           class="flex items-center justify-between bg-white rounded-xl border border-slate-200 p-4 active:bg-slate-50">
-            <div class="min-w-0 flex-1 pr-3">
-                <div class="font-semibold text-slate-900 truncate">{{ r.name }}</div>
-                {% if r.area %}<div class="text-xs text-slate-500 truncate">{{ r.area }}</div>{% endif %}
-            </div>
-            <div class="text-right">
-                {% include "salesman/partials/_amount.html" with value=r.baaki %}
-                <div class="text-[10px] uppercase text-slate-400 mt-0.5">Baaki</div>
-            </div>
-        </a>
-        {% empty %}
-        <div class="text-center text-slate-500 py-12 text-sm">
-            Koi dukaan nahi mila.
-        </div>
-        {% endfor %}
+    <div id="picker-results">
+        {% include "salesman/_entry_picker_results.html" %}
     </div>
 </div>
 {% endblock %}

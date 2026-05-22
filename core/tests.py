@@ -103,7 +103,7 @@ class BaakiTests(TestCase):
 
     def test_zero_baaki_initially(self):
         self.assertEqual(self._baaki(), Decimal("0"))
-        self.assertEqual(self.retailer.current_baaki, Decimal("0"))
+        self.assertEqual(self.retailer.baaki_for(None), Decimal("0"))
 
     def test_baaki_sums_sales_and_subtracts_payments(self):
         Sale.objects.create(salesman=self.salesman, retailer=self.retailer, amount=Decimal("5000"))
@@ -113,7 +113,7 @@ class BaakiTests(TestCase):
             mode=Payment.Mode.UPI,
         )
         self.assertEqual(self._baaki(), Decimal("4000"))
-        self.assertEqual(self.retailer.current_baaki, Decimal("4000"))
+        self.assertEqual(self.retailer.baaki_for(None), Decimal("4000"))
 
     def test_baaki_excludes_soft_deleted_sales(self):
         Sale.objects.create(salesman=self.salesman, retailer=self.retailer, amount=Decimal("5000"))
@@ -162,7 +162,7 @@ class BaakiScopingTests(TestCase):
     def test_global_baaki_sums_all_salesmen(self):
         annotated = Retailer.objects.with_baaki().get(pk=self.retailer.pk)
         self.assertEqual(annotated.baaki, Decimal("7000"))
-        self.assertEqual(self.retailer.current_baaki, Decimal("7000"))
+        self.assertEqual(self.retailer.baaki_for(None), Decimal("7000"))
         self.assertEqual(self.retailer.baaki_for(None), Decimal("7000"))
 
     def test_baaki_for_salesman_one(self):
@@ -327,6 +327,48 @@ class EntryNewTests(_ViewBase):
         )
         self.assertEqual(resp.status_code, 200)  # re-renders form with errors
         self.assertFalse(Payment.objects.filter(notes="no-mode").exists())
+
+    def test_entry_new_with_missing_kind_shows_error(self):
+        """A POST without a `kind` (tampered hidden input) must surface the
+        problem instead of silently re-rendering an empty form."""
+        self.login(self.s1)
+        resp = self.client.post(
+            f"/dukaan/{self.retailer.pk}/entry/",
+            {"amount": "100", "notes": "no-kind-test"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Udhar ya Jama")
+        self.assertFalse(Sale.objects.filter(notes="no-kind-test").exists())
+
+
+class HtmxLiveSearchTests(_ViewBase):
+    """HTMX requests return just the results partial, not the full page."""
+
+    def setUp(self):
+        Sale.objects.create(salesman=self.s1, retailer=self.retailer, amount=Decimal("1000"))
+
+    def test_dukaan_htmx_returns_partial(self):
+        self.login(self.s1)
+        resp = self.client.get("/", HTTP_HX_REQUEST="true")
+        self.assertEqual(resp.status_code, 200)
+        # Partial has no <html> / <body> wrapper from the salesman base.
+        body = resp.content.decode()
+        self.assertNotIn("<html", body)
+        self.assertNotIn("<nav", body)
+        self.assertIn("Mobile Shoppy", body)
+
+    def test_dukaan_non_htmx_returns_full_page(self):
+        self.login(self.s1)
+        resp = self.client.get("/")
+        body = resp.content.decode()
+        self.assertIn("<html", body)
+
+    def test_entry_picker_htmx_returns_partial(self):
+        self.login(self.s1)
+        resp = self.client.get("/entry/new/", HTTP_HX_REQUEST="true")
+        body = resp.content.decode()
+        self.assertNotIn("<html", body)
+        self.assertIn("Mobile Shoppy", body)
 
 
 class EntryEditDeleteTests(_ViewBase):

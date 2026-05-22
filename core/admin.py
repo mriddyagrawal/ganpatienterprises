@@ -56,7 +56,9 @@ class RetailerAdmin(ModelAdmin):
 
     @admin.display(description="Baaki (₹)", ordering="baaki")
     def baaki_display(self, obj):
-        return obj.baaki
+        # `baaki` is the annotation from with_baaki(); falls back to a
+        # live compute via baaki_for(None) if the queryset wasn't annotated.
+        return getattr(obj, "baaki", None) or obj.baaki_for(None)
 
 
 # ---------------------------------------------------------------------------

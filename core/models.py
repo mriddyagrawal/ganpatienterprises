@@ -84,9 +84,10 @@ class Retailer(models.Model):
     def baaki_for(self, salesman) -> Decimal:
         """Live Baaki at this retailer.
 
-        Pass ``salesman=None`` (or use :pyattr:`current_baaki`) for the
-        global value; pass a User to get the per-salesman scope. See
-        PLAN §1 (Data scoping by role) and §3 (Computed values).
+        Pass ``salesman=None`` for the global value (admin "All salesmen"
+        view); pass a User to get the per-salesman scope (salesman view
+        and admin filtered view). See PLAN §1 (Data scoping by role) and
+        §3 (Computed values).
         """
         sales_qs = self.sales.filter(is_deleted=False)
         payments_qs = self.payments.filter(is_deleted=False)
@@ -96,11 +97,6 @@ class Retailer(models.Model):
         sales = sales_qs.aggregate(s=Sum("amount"))["s"] or Decimal("0")
         payments = payments_qs.aggregate(s=Sum("amount"))["s"] or Decimal("0")
         return sales - payments
-
-    @property
-    def current_baaki(self) -> Decimal:
-        """Shortcut for the global Baaki. Equivalent to ``baaki_for(None)``."""
-        return self.baaki_for(None)
 
 
 # ---------------------------------------------------------------------------

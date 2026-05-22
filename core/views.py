@@ -9,7 +9,6 @@ Django Admin and never see the salesman shell.
 from datetime import timedelta
 from decimal import Decimal
 
-from django.contrib.auth.decorators import login_required
 from django.db.models import Q, Sum
 from django.http import HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
@@ -58,15 +57,18 @@ def _entry_model_for_kind(kind: str):
 # ---------------------------------------------------------------------------
 
 
-@login_required
+@salesman_required
 def dukaan(request):
-    """Salesman home (Dukaan tab) — also routes admins away to /admin/."""
-    user = request.user
-    if getattr(user, "is_admin_role", False):
-        return redirect("/admin/")
-    if not getattr(user, "is_salesman_role", False):
-        return HttpResponseForbidden("Salesman access only.")
+    """Salesman home (Dukaan tab).
 
+    `@salesman_required` already redirects admins to ``/admin/`` and 403s
+    anyone else, so this view only handles the happy path.
+
+    Live HTMX search: when ``request.htmx`` is true we return just the
+    results partial so the page doesn't reload on each keystroke
+    (PLAN §5 Phase 2 S2 — "live filter, HTMX").
+    """
+    user = request.user
     qs = Retailer.objects.filter(is_active=True).with_baaki(salesman=user)
 
     search = (request.GET.get("q") or "").strip()
@@ -82,9 +84,12 @@ def dukaan(request):
         sort = "baaki"
         qs = qs.order_by("-baaki", "name")
 
+    template = (
+        "salesman/_dukaan_results.html" if request.htmx else "salesman/dukaan_list.html"
+    )
     return render(
         request,
-        "salesman/dukaan_list.html",
+        template,
         {"active": "dukaan", "retailers": qs, "search": search, "sort": sort},
     )
 
@@ -128,7 +133,10 @@ def retailer_detail(request, pk):
 
 @salesman_required
 def entry_new_picker(request):
-    """First step of Naya Entry when no retailer is in context yet."""
+    """First step of Naya Entry when no retailer is in context yet.
+
+    Same HTMX-partial pattern as :func:`dukaan` for the live search.
+    """
     user = request.user
     qs = (
         Retailer.objects.filter(is_active=True)
@@ -138,9 +146,14 @@ def entry_new_picker(request):
     search = (request.GET.get("q") or "").strip()
     if search:
         qs = qs.filter(Q(name__icontains=search) | Q(area__icontains=search))
+    template = (
+        "salesman/_entry_picker_results.html"
+        if request.htmx
+        else "salesman/entry_picker.html"
+    )
     return render(
         request,
-        "salesman/entry_picker.html",
+        template,
         {"active": "naya", "retailers": qs, "search": search},
     )
 
@@ -154,6 +167,7 @@ def entry_new(request, pk):
 
     sale_form = None
     payment_form = None
+    kind_error = None
 
     if request.method == "POST":
         if kind == "udhar":
@@ -174,6 +188,10 @@ def entry_new(request, pk):
                 payment.save()
                 log_change(actor=user, instance=payment, action=AuditLog.Action.CREATE)
                 return redirect("core:retailer_detail", pk=retailer.pk)
+        else:
+            # Defensive: hidden `kind` input was tampered with or the JS toggle
+            # state was broken. Don't render a blank form — surface the issue.
+            kind_error = "Udhar ya Jama, kuch ek select karein."
 
     if sale_form is None:
         sale_form = SaleForm()
@@ -188,6 +206,7 @@ def entry_new(request, pk):
             "retailer": retailer,
             "baaki": retailer.baaki_for(user),
             "kind": kind,
+            "kind_error": kind_error,
             "sale_form": sale_form,
             "payment_form": payment_form,
             "sanity_warn_amount": SANITY_WARN_AMOUNT,

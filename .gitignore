@@ -39,5 +39,8 @@ db.sqlite3-journal
 *.swo
 .DS_Store
 
+# Claude Code session-local files (lockfiles, etc.)
+.claude/
+
 # Logs
 *.log

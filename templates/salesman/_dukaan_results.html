@@ -1,0 +1,21 @@
+{% load humanize %}
+{# Renders inside #dukaan-results. Updated via HTMX on search keystrokes. #}
+<div class="space-y-2">
+    {% for r in retailers %}
+    <a href="{% url 'core:retailer_detail' r.pk %}"
+       class="flex items-center justify-between bg-white rounded-xl border border-slate-200 p-4 hover:border-slate-300 active:bg-slate-50">
+        <div class="min-w-0 flex-1 pr-3">
+            <div class="font-semibold text-slate-900 truncate">{{ r.name }}</div>
+            {% if r.area %}<div class="text-xs text-slate-500 truncate">{{ r.area }}</div>{% endif %}
+        </div>
+        <div class="text-right">
+            {% include "salesman/partials/_amount.html" with value=r.baaki %}
+            <div class="text-[10px] uppercase text-slate-400 mt-0.5">Mera Baaki</div>
+        </div>
+    </a>
+    {% empty %}
+    <div class="text-center text-slate-500 py-12 text-sm">
+        {% if search %}"{{ search }}" se koi dukaan nahi mila.{% else %}Koi dukaan nahi hai.{% endif %}
+    </div>
+    {% endfor %}
+</div>

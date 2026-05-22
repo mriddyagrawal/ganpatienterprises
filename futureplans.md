@@ -151,3 +151,27 @@ A running list of ideas, features, and integrations that are **out of scope for 
 - Retailers ask "how do I see my Baaki" — first sign that one-way visibility (transaction SMS) would help.
 - Owner asks for an automated end-of-day digest.
 - Owner wants to send dunning / collection reminders without doing it manually.
+
+---
+
+## 8. Territory / Salesman Reassignment Workflow
+
+**The idea.** Today the per-salesman data-scoping rule (PLAN §1) ties every Sale, Payment, and Visit to the User who logged it. If a salesman leaves the business, switches territories, or hands off a route to a new hire, the historical entries remain attached to the original User — meaning the **new** salesman sees ₹0 Baaki at retailers the old salesman extended udhar to, and the old salesman's ledger keeps showing live Baaki even though he no longer works there.
+
+The owner can work around this today by re-assigning entries via Django Admin / shell, but that's manual, error-prone, and there's no audit trail of *why* the reassignment happened.
+
+**What this could look like.**
+- A first-class **"Handoff"** action: admin picks "from salesman X to salesman Y, at retailer Z (or all of X's retailers)", optionally with a date cutoff, optionally preserving historical attribution while routing future entries to Y.
+- Two modes worth supporting:
+  - **Full reassignment** — bulk-update all of X's open Baaki to Y (Y now owes / is owed; X's books zero out).
+  - **Territory partition** — Y picks up retailers in a specific area; X retains the rest. Useful when one salesman is replaced by two, or a route is split.
+- Audit log entries for every reassignment showing the actor, the date, the from/to users, and the affected retailers.
+
+**Why deferred.**
+- V1 has four salesmen, none of whom are leaving today. The workaround (Django Admin bulk edit) is acceptable.
+- Designing this well requires the admin dashboard (Phase 3) and reports (Phase 4) to exist first — otherwise we can't see what got moved or verify the books balance after.
+
+**Triggers to revisit.**
+- A salesman leaves or changes routes.
+- The owner runs a reconciliation and sees mismatched Baaki between the live app and the salesman's actual customer relationships.
+- The team grows past four salesmen and territory boundaries become real.

@@ -32,7 +32,7 @@ This is the source-of-truth document for how the web app gets built. Business co
 - **Tailwind CSS** via `django-tailwind` (standalone v4 template — no Node dependency)
 - **HTMX** for partial-page updates (form submissions without full reloads, live Baaki updates, retailer autocomplete)
 - **django-unfold** for a modern Django Admin theme — optional, but cheap upgrade
-- **Lucide icons** (MIT-licensed, large library, mobile-friendly)
+- **Inline SVG icons** (Lucide-style hand-rolled, MIT-licensed shapes) embedded directly in templates — no separate icon package. Each icon is a couple of lines of SVG markup. We can adopt the `lucide` JS / static package later if we outgrow this approach.
 - **WhiteNoise** for static file serving in prod
 - **gunicorn** as the WSGI server
 
