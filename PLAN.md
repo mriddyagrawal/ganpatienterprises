@@ -20,6 +20,7 @@ This is the source-of-truth document for how the web app gets built. Business co
 | **UI language** | Hinglish — Hindi vocabulary written in Latin script: *Udhar*, *Jama*, *Baaki*, *Naya Entry* |
 | **Visual language** | Red = Udhar / "dena hai" / outgoing. Green = Jama / "mil gaya" / incoming. |
 | **Code vs UI naming** | English in code (`Sale`, `Payment`, `balance`), Hindi-in-Latin in user-facing strings (*Udhar*, *Jama*, *Baaki*). |
+| **Data scoping by role** | **Salesmen see only their own entries.** A salesman's Baaki for any retailer = (his own Σ Sales − his own Σ Payments) at that retailer; same scoping on history, ledger, and reports. **Admins see everything**, with a salesman selector (default = *All salesmen*) on every listing/report page. The shared **retailer master list** (names, area, contact) is visible to all salesmen — only history/baaki/reports are scoped. |
 
 ---
 
@@ -136,11 +137,14 @@ Re-assigning an entry to a different visit (e.g., admin corrects a misattributio
 
 ### Computed values
 
-- **Retailer.baaki** = `Σ Sale.amount (not deleted) − Σ Payment.amount (not deleted)` for that retailer.
-  - Positive → retailer owes the business
+- **Retailer.baaki has two scopes:**
+  - **Global** (admin "All salesmen" view) = `Σ Sale.amount (not deleted) − Σ Payment.amount (not deleted)` for that retailer across every salesman.
+  - **Per-salesman** (salesman view, or admin filtered by one salesman) = same formula but filtered by `salesman=<that user>` on both sums.
+- Sign conventions are the same in both scopes:
+  - Positive → retailer owes the business (or owes that salesman)
   - Zero → settled
   - Negative → business owes retailer (overpayment scenario)
-- Implemented as a method/annotation on the Retailer queryset, not a stored field. Recomputed on read. At our scale this is fine.
+- Implementation: `Retailer.objects.with_baaki(salesman=None)` annotates the queryset; pass a `User` to scope. For a single instance, `retailer.baaki_for(salesman)` (or the `retailer.current_baaki` property as a shortcut for the global value). Recomputed on read; at our scale this is fine.
 
 ### Validation rules
 
@@ -253,22 +257,24 @@ Tasks:
 
 ### Phase 2 — Salesman field app *(~3–5 days)*
 
-**Outcome:** A salesman can log in on his phone, browse retailers, see each retailer's Baaki and history, and log Udhar / Jama entries.
+**Outcome:** A salesman can log in on his phone, browse retailers, see his own Baaki and history with each retailer, and log Udhar / Jama entries.
+
+**Scoping rule (§1):** every number, list, and ledger entry shown to a salesman is filtered to his own data. Other salesmen's sales/payments/visits are invisible to him, even at retailers he shares. The retailer master list (shop names, areas, contact info) is shared so he can find a shop he hasn't visited yet.
 
 #### Screens
 
 **S1. Login** — username + password, "remember me" 30 days.
 
 **S2. Dukaan tab (retailers list)**
-- Top: search bar (live filter, HTMX)
+- Top: search bar (live filter, HTMX) — searches across all retailers (master list is shared).
 - Sort toggle: **Baaki (sabse zyada)** [default] | **Naam (A → Z)** | **Recent activity**
-- Each row: shop name, area (small text), Baaki on the right in red (if owed) or green (if zero/credit)
+- Each row: shop name, area (small text), **this salesman's Baaki** on the right in red (if owed) / green (if zero or credit). A retailer this salesman has never transacted with shows Baaki = ₹0.
 - Tap row → S3
 
 **S3. Retailer detail (the ledger)**
-- Top card: shop name, owner name, phone, current **Baaki** (huge ₹ figure, red/green)
+- Top card: shop name, owner name, phone, current **Baaki for this salesman** (huge ₹ figure, red/green).
 - "Naya Entry" red+green pair of buttons (or single FAB → S4)
-- Below: vertical timeline of entries
+- Below: vertical timeline of **this salesman's entries** only (other salesmen's activity at the same retailer is not shown):
   - Udhar entries: red `↗️ Udhar ₹500` with date + notes + small "edit" pencil if within 24h
   - Jama entries: green `↘️ Jama ₹300 (Cash)` with date
   - Deleted entries shown struck-through in grey
@@ -289,7 +295,7 @@ Tasks:
 
 **S5. Aaj tab (today's report — salesman view)**
 
-This is the salesman's daily report. It scopes activity numbers to his own entries; the "Total Baaki" section is system-wide so he sees every retailer's current standing.
+This is the salesman's daily report. Every number is **scoped to this salesman** — he sees only his own activity and only his own outstanding Baaki across retailers.
 
 Sections, top to bottom:
 
@@ -299,8 +305,8 @@ Sections, top to bottom:
    - 💵 Cash: ₹X
    - 📱 UPI: ₹Y
 4. **Aaj ka Udhar — Detail** — list of today's Sale entries (retailer name + amount), edit/delete pencil if within 24h. Tap "Sab dekho" → full list.
-5. **Total Baaki — Top dukaan** — system-wide list of retailers with Baaki > 0, sorted descending. Top 10 inline + summary stat ("System total: ₹X across N dukaan") + tap to expand.
-6. **Aaj ke Visits** — small stat: "Aaj N dukaan visit kiye." (Computed from distinct Visits with today's activity.)
+5. **Total Baaki — Top dukaan** — list of retailers where **this salesman** has Baaki > 0, sorted descending. Top 10 inline + summary stat ("Mera total: ₹X across N dukaan") + tap to expand. Other salesmen's outstanding Baaki at the same shops is invisible.
+6. **Aaj ke Visits** — small stat: "Aaj N dukaan visit kiye." (Computed from distinct Visits owned by this salesman with today's activity.)
 
 Edit/delete on today's entries follows the 24h window rule.
 
@@ -319,24 +325,28 @@ Edit/delete on today's entries follows the 24h window rule.
 
 #### Screens
 
+**Scoping rule (§1):** admin sees everything. Every listing/report screen has a **salesman selector** (default = *All salesmen*); picking a name switches the page to the same view that salesman would see in Phase 2.
+
 **A1. Today's Report — admin view**
 
-Same sections as the salesman's S5 (Aaj tab), unscoped and with filters. Specifically:
+Same sections as the salesman's S5 (Aaj tab), but with filters.
 
 - **Date picker** at the top (default = today; admin can view any past date).
-- **Salesman filter** (default = "All salesmen"; can pick one).
-- **Aaj ka Udhar / Jama / Cash / UPI** totals, scoped to the date + salesman filter.
-- **Per-salesman cards** (shown when filter = "All salesmen"): each salesman's Udhar issued, Jama collected, Cash/UPI split, # entries, # visits.
+- **Salesman selector** (default = *All salesmen*; can pick one). When *All salesmen* is selected, Baaki and totals are global; when one is picked, every section is scoped to that salesman (matching what they'd see).
+- **Aaj ka Udhar / Jama / Cash / UPI** totals, scoped to the date + salesman selector.
+- **Per-salesman cards** (shown only when selector = *All salesmen*): each salesman's Udhar issued, Jama collected, Cash/UPI split, # entries, # visits.
 - **Aaj ka Udhar — Detail** list (filtered).
-- **Total Baaki — Top dukaan** list (system-wide, not date-filtered — Baaki is a live number).
-- **Live transaction feed** at the bottom: last 50 entries across all salesmen, auto-refresh via HTMX every 60 seconds.
+- **Total Baaki — Top dukaan** list. Scope follows the salesman selector (global on *All salesmen*, per-salesman otherwise). Baaki is a live number, not date-filtered.
+- **Live transaction feed** at the bottom: last 50 entries (filtered by salesman selector), auto-refresh via HTMX every 60 seconds.
 
 **A2. Retailers** — searchable, sortable
-- Columns: name, area, current Baaki, last entry date, days-since-activity
+- **Salesman selector** governs the Baaki column.
+- Columns: name, area, current Baaki (scope-aware), last entry date, days-since-activity
 - Click → A3
 
 **A3. Retailer detail**
-- Same ledger view as salesman's S3, but with full edit/delete powers and no 24h limit
+- Same ledger view as salesman's S3, but with full edit/delete powers and no 24h limit.
+- **Salesman selector** at the top: *All salesmen* (default) shows the global ledger; picking one filters the timeline + Baaki to that salesman's contribution.
 - "Add manual entry" (admin can record a payment that came in via bank deposit, etc.)
 - Edit retailer profile
 
@@ -355,12 +365,14 @@ Same sections as the salesman's S5 (Aaj tab), unscoped and with filters. Specifi
 
 **Outcome:** Owner can produce reports for his accountant and for himself.
 
+**Scoping (§1):** admin reports honor a salesman selector (default = *All salesmen*). When a salesman is viewing reports (Phase 2 surfaces these too), every report is hard-scoped to that salesman.
+
 Reports:
-1. **Daily closing** — for any date: Σ Udhar, Σ Jama by mode, per-salesman breakdown, list of all entries
-2. **Baaki aging** — outstanding Baaki per retailer, bucketed by oldest unpaid entry age (0–7 / 8–15 / 16–30 / 31–60 / 60+ days). The flagship report.
-3. **Salesman performance** — date range filter; per salesman: # entries, Udhar issued, Jama collected, by mode
-4. **Retailer statement** — for one retailer, a printable PDF (use `weasyprint` or `xhtml2pdf`) showing every entry over a date range with running Baaki
-5. **CSV / Excel export** for every report (using `openpyxl` for Excel)
+1. **Daily closing** — for any date: Σ Udhar, Σ Jama by mode, per-salesman breakdown (admin only), list of entries (scope-aware).
+2. **Baaki aging** — outstanding Baaki per retailer, bucketed by oldest unpaid entry age (0–7 / 8–15 / 16–30 / 31–60 / 60+ days). The flagship report. Scope: admin can run for *All salesmen* (global Baaki per retailer) or one salesman (per-salesman Baaki at each retailer they touched).
+3. **Salesman performance** (admin only — salesmen don't need to benchmark themselves) — date range filter; per salesman: # entries, Udhar issued, Jama collected, by mode.
+4. **Retailer statement** — for one retailer, a printable PDF (use `weasyprint` or `xhtml2pdf`) showing every entry over a date range with running Baaki. Admin can run global; salesman can run only their own slice.
+5. **CSV / Excel export** for every report (using `openpyxl` for Excel).
 
 Optional but high-value:
 - **Daily summary email** sent to owner at a configurable time each evening with headline numbers

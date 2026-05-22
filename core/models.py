@@ -28,25 +28,37 @@ VISIT_GROUPING_WINDOW = timedelta(minutes=15)
 class RetailerQuerySet(models.QuerySet):
     """Custom queryset for Retailer with the Baaki annotation."""
 
-    def with_baaki(self):
-        sales = (
-            Sale.objects.filter(retailer=OuterRef("pk"), is_deleted=False)
-            .order_by()
+    def with_baaki(self, salesman=None):
+        """Annotate each retailer with a ``baaki`` Decimal.
+
+        - ``salesman=None`` → global Baaki: Σ all Sales − Σ all Payments
+          across every salesman. This is what the admin "All salesmen" view
+          shows by default.
+        - ``salesman=<User>`` → scoped Baaki: only that salesman's sales
+          and payments are included. This is what every salesman-facing
+          screen and any admin screen filtered by salesman shows.
+        """
+        sales = Sale.objects.filter(retailer=OuterRef("pk"), is_deleted=False)
+        payments = Payment.objects.filter(retailer=OuterRef("pk"), is_deleted=False)
+        if salesman is not None:
+            sales = sales.filter(salesman=salesman)
+            payments = payments.filter(salesman=salesman)
+        sales_total = (
+            sales.order_by()
             .values("retailer")
             .annotate(total=Sum("amount"))
             .values("total")
         )
-        payments = (
-            Payment.objects.filter(retailer=OuterRef("pk"), is_deleted=False)
-            .order_by()
+        payments_total = (
+            payments.order_by()
             .values("retailer")
             .annotate(total=Sum("amount"))
             .values("total")
         )
         zero = Value(Decimal("0"), output_field=DecimalField(max_digits=14, decimal_places=2))
         return self.annotate(
-            baaki=Coalesce(Subquery(sales, output_field=DecimalField()), zero)
-            - Coalesce(Subquery(payments, output_field=DecimalField()), zero)
+            baaki=Coalesce(Subquery(sales_total, output_field=DecimalField()), zero)
+            - Coalesce(Subquery(payments_total, output_field=DecimalField()), zero)
         )
 
 
@@ -69,12 +81,26 @@ class Retailer(models.Model):
     def __str__(self) -> str:
         return self.name
 
+    def baaki_for(self, salesman) -> Decimal:
+        """Live Baaki at this retailer.
+
+        Pass ``salesman=None`` (or use :pyattr:`current_baaki`) for the
+        global value; pass a User to get the per-salesman scope. See
+        PLAN §1 (Data scoping by role) and §3 (Computed values).
+        """
+        sales_qs = self.sales.filter(is_deleted=False)
+        payments_qs = self.payments.filter(is_deleted=False)
+        if salesman is not None:
+            sales_qs = sales_qs.filter(salesman=salesman)
+            payments_qs = payments_qs.filter(salesman=salesman)
+        sales = sales_qs.aggregate(s=Sum("amount"))["s"] or Decimal("0")
+        payments = payments_qs.aggregate(s=Sum("amount"))["s"] or Decimal("0")
+        return sales - payments
+
     @property
     def current_baaki(self) -> Decimal:
-        """Live Baaki for one retailer. Use Retailer.objects.with_baaki() for lists."""
-        sales = self.sales.filter(is_deleted=False).aggregate(s=Sum("amount"))["s"] or Decimal("0")
-        payments = self.payments.filter(is_deleted=False).aggregate(s=Sum("amount"))["s"] or Decimal("0")
-        return sales - payments
+        """Shortcut for the global Baaki. Equivalent to ``baaki_for(None)``."""
+        return self.baaki_for(None)
 
 
 # ---------------------------------------------------------------------------

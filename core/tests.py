@@ -143,6 +143,55 @@ class BaakiTests(TestCase):
         self.assertEqual(self._baaki(), Decimal("-500"))
 
 
+class BaakiScopingTests(TestCase):
+    """Per-salesman Baaki — the core data-scoping invariant (PLAN §1, §3)."""
+
+    def setUp(self):
+        self.s1 = _fresh_user("salesman_one")
+        self.s2 = _fresh_user("salesman_two")
+        self.retailer = _fresh_retailer()
+        # s1's slice: ₹5000 sold − ₹1000 received = ₹4000 owed to s1
+        Sale.objects.create(salesman=self.s1, retailer=self.retailer, amount=Decimal("5000"))
+        Payment.objects.create(
+            salesman=self.s1, retailer=self.retailer, amount=Decimal("1000"),
+            mode=Payment.Mode.CASH,
+        )
+        # s2's slice: ₹3000 sold − ₹0 received = ₹3000 owed to s2
+        Sale.objects.create(salesman=self.s2, retailer=self.retailer, amount=Decimal("3000"))
+
+    def test_global_baaki_sums_all_salesmen(self):
+        annotated = Retailer.objects.with_baaki().get(pk=self.retailer.pk)
+        self.assertEqual(annotated.baaki, Decimal("7000"))
+        self.assertEqual(self.retailer.current_baaki, Decimal("7000"))
+        self.assertEqual(self.retailer.baaki_for(None), Decimal("7000"))
+
+    def test_baaki_for_salesman_one(self):
+        annotated = Retailer.objects.with_baaki(salesman=self.s1).get(pk=self.retailer.pk)
+        self.assertEqual(annotated.baaki, Decimal("4000"))
+        self.assertEqual(self.retailer.baaki_for(self.s1), Decimal("4000"))
+
+    def test_baaki_for_salesman_two(self):
+        annotated = Retailer.objects.with_baaki(salesman=self.s2).get(pk=self.retailer.pk)
+        self.assertEqual(annotated.baaki, Decimal("3000"))
+        self.assertEqual(self.retailer.baaki_for(self.s2), Decimal("3000"))
+
+    def test_baaki_zero_for_salesman_with_no_history(self):
+        s3 = _fresh_user("salesman_three")
+        annotated = Retailer.objects.with_baaki(salesman=s3).get(pk=self.retailer.pk)
+        self.assertEqual(annotated.baaki, Decimal("0"))
+        self.assertEqual(self.retailer.baaki_for(s3), Decimal("0"))
+
+    def test_scoped_baaki_excludes_other_salesmens_soft_deleted_entries(self):
+        # s1 soft-deletes their payment; scope to s1 should shift accordingly,
+        # but s2's view must be unaffected.
+        p = Payment.objects.get(salesman=self.s1)
+        p.is_deleted = True
+        p.deleted_reason = "Test"
+        p.save()
+        self.assertEqual(self.retailer.baaki_for(self.s1), Decimal("5000"))
+        self.assertEqual(self.retailer.baaki_for(self.s2), Decimal("3000"))
+
+
 class DeletedReasonEnforcementTests(TestCase):
     """is_deleted=True requires a non-empty deleted_reason (PLAN §3)."""
 
