@@ -1,0 +1,34 @@
+{% extends "dashboard/_base.html" %}
+{% load humanize %}
+
+{% block title %}Daily Closing · Reports · Ganpati Owner{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <a href="{% url 'core:reports_index' %}" class="text-sm text-slate-500 hover:text-slate-700">← Reports</a>
+    <h1 class="text-2xl font-bold text-slate-900 mt-1">Daily Closing</h1>
+    <p class="text-sm text-slate-600">All Udhar / Jama for one day, with per-salesman breakdown. Pick any past date.</p>
+</div>
+
+<form id="dc-filter" class="bg-white rounded-xl border border-slate-200 p-3 mb-5 flex flex-wrap items-center gap-3 text-sm"
+      hx-get="{% url 'core:reports_daily_closing' %}"
+      hx-trigger="change"
+      hx-target="#dc-main"
+      hx-push-url="true">
+    <span class="text-slate-500 text-xs uppercase tracking-wide">Date</span>
+    <input type="date" name="date" value="{{ date_iso }}" class="border border-slate-300 rounded-md px-2 py-1.5">
+    <span class="text-slate-500 text-xs uppercase tracking-wide ml-2">Salesman</span>
+    <select name="salesman" class="border border-slate-300 rounded-md px-2 py-1.5 min-w-[180px]">
+        <option value="all" {% if not selected_salesman %}selected{% endif %}>All salesmen</option>
+        {% for sm in all_salesmen %}
+        <option value="{{ sm.pk }}" {% if selected_salesman and selected_salesman.pk == sm.pk %}selected{% endif %}>
+            {{ sm.full_name|default:sm.username }}
+        </option>
+        {% endfor %}
+    </select>
+</form>
+
+<div id="dc-main">
+    {% include "dashboard/reports/_daily_closing_main.html" %}
+</div>
+{% endblock %}

@@ -1,0 +1,92 @@
+{% load humanize %}
+
+<div class="text-sm text-slate-600 mb-3">
+    <strong class="text-slate-900">{{ date|date:"d M Y, l" }}</strong>
+    {% if selected_salesman %} · scoped to {{ selected_salesman.full_name|default:selected_salesman.username }}{% endif %}
+    · {{ n_entries }} entries
+</div>
+
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+    <div class="bg-white rounded-2xl border border-slate-200 p-5">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Total Udhar</div>
+        <div class="text-3xl font-bold text-red-500">₹{{ udhar_total|floatformat:0|intcomma }}</div>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 p-5">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Total Jama</div>
+        <div class="text-3xl font-bold text-green-600">₹{{ jama_total|floatformat:0|intcomma }}</div>
+        <div class="mt-2 text-xs space-y-0.5">
+            <div class="flex justify-between text-slate-600"><span>💵 Cash</span><span class="font-semibold text-slate-900">₹{{ cash_total|floatformat:0|intcomma }}</span></div>
+            <div class="flex justify-between text-slate-600"><span>📱 UPI</span><span class="font-semibold text-slate-900">₹{{ upi_total|floatformat:0|intcomma }}</span></div>
+        </div>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 p-5">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Net Baaki Change</div>
+        <div class="text-3xl font-bold {% if net_position > 0 %}text-red-500{% elif net_position < 0 %}text-green-600{% else %}text-slate-400{% endif %}">
+            {% if net_position > 0 %}+{% elif net_position < 0 %}−{% endif %}₹{{ net_position|floatformat:0|intcomma|cut:"-" }}
+        </div>
+        <div class="text-xs text-slate-500 mt-0.5">
+            Udhar − Jama (+ve = Baaki grew)
+        </div>
+    </div>
+</div>
+
+{% if per_salesman %}
+<h2 class="text-sm font-semibold text-slate-700 mb-2">Salesman-wise</h2>
+<div class="bg-white rounded-2xl border border-slate-200 overflow-hidden mb-5">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
+            <tr>
+                <th class="text-left px-4 py-2 font-medium">Salesman</th>
+                <th class="text-right px-4 py-2 font-medium">Udhar</th>
+                <th class="text-right px-4 py-2 font-medium">Cash</th>
+                <th class="text-right px-4 py-2 font-medium">UPI</th>
+                <th class="text-right px-4 py-2 font-medium">Entries</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in per_salesman %}
+            <tr class="border-t border-slate-100">
+                <td class="px-4 py-2.5 font-medium text-slate-900">{{ row.salesman.full_name|default:row.salesman.username }}</td>
+                <td class="px-4 py-2.5 text-right text-red-500 font-semibold">₹{{ row.udhar|floatformat:0|intcomma }}</td>
+                <td class="px-4 py-2.5 text-right text-green-600">₹{{ row.cash|floatformat:0|intcomma }}</td>
+                <td class="px-4 py-2.5 text-right text-green-600">₹{{ row.upi|floatformat:0|intcomma }}</td>
+                <td class="px-4 py-2.5 text-right text-slate-600">{{ row.entries }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<h2 class="text-sm font-semibold text-slate-700 mb-2">All Entries</h2>
+<div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
+            <tr>
+                <th class="text-left px-4 py-2 font-medium">When</th>
+                <th class="text-left px-4 py-2 font-medium">Type</th>
+                <th class="text-left px-4 py-2 font-medium">Dukaan</th>
+                <th class="text-left px-4 py-2 font-medium hidden sm:table-cell">Salesman</th>
+                <th class="text-right px-4 py-2 font-medium">Amount</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for kind, e in entries %}
+            <tr class="border-t border-slate-100">
+                <td class="px-4 py-2 text-slate-600 whitespace-nowrap">{{ e.occurred_at|date:"h:i A" }}</td>
+                <td class="px-4 py-2">
+                    {% if kind == "sale" %}<span class="text-red-500 font-medium">↗ Udhar</span>
+                    {% else %}<span class="text-green-600 font-medium">↘ Jama ({{ e.get_mode_display }})</span>{% endif %}
+                </td>
+                <td class="px-4 py-2 text-slate-900">{{ e.retailer.name }}</td>
+                <td class="px-4 py-2 text-slate-600 hidden sm:table-cell">{{ e.salesman.full_name|default:e.salesman.username }}</td>
+                <td class="px-4 py-2 text-right font-semibold {% if kind == 'sale' %}text-red-500{% else %}text-green-600{% endif %}">
+                    ₹{{ e.amount|floatformat:0|intcomma }}
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 text-sm">Is din koi entry nahi.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

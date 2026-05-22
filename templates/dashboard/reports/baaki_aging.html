@@ -1,0 +1,34 @@
+{% extends "dashboard/_base.html" %}
+{% load humanize %}
+
+{% block title %}Baaki Aging · Reports · Ganpati Owner{% endblock %}
+
+{% block content %}
+<div class="mb-4 flex items-center justify-between">
+    <div>
+        <a href="{% url 'core:reports_index' %}" class="text-sm text-slate-500 hover:text-slate-700">← Reports</a>
+        <h1 class="text-2xl font-bold text-slate-900 mt-1">Baaki Aging</h1>
+        <p class="text-sm text-slate-600">Outstanding Baaki bucketed by the age of the oldest unpaid sale (FIFO-matched against payments).</p>
+    </div>
+</div>
+
+<form id="aging-filter" class="bg-white rounded-xl border border-slate-200 p-3 mb-5 flex flex-wrap items-center gap-3 text-sm"
+      hx-get="{% url 'core:reports_baaki_aging' %}"
+      hx-trigger="change"
+      hx-target="#aging-main"
+      hx-push-url="true">
+    <span class="text-slate-500 text-xs uppercase tracking-wide">Salesman</span>
+    <select name="salesman" class="border border-slate-300 rounded-md px-2 py-1.5 min-w-[180px]">
+        <option value="all" {% if not selected_salesman %}selected{% endif %}>All salesmen</option>
+        {% for sm in all_salesmen %}
+        <option value="{{ sm.pk }}" {% if selected_salesman and selected_salesman.pk == sm.pk %}selected{% endif %}>
+            {{ sm.full_name|default:sm.username }}
+        </option>
+        {% endfor %}
+    </select>
+</form>
+
+<div id="aging-main">
+    {% include "dashboard/reports/_baaki_aging_main.html" %}
+</div>
+{% endblock %}

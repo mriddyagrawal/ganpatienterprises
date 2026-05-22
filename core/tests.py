@@ -515,6 +515,97 @@ class AdminDashboardSalesmenTests(_ViewBase):
         self.assertEqual(resp.status_code, 404)
 
 
+class ReportsTests(_ViewBase):
+    """Phase 4 — Reports index, Baaki Aging, Daily Closing."""
+
+    def setUp(self):
+        # s1 sold ₹5,000 then received ₹2,000 → ₹3,000 outstanding at Mobile Shoppy
+        Sale.objects.create(salesman=self.s1, retailer=self.retailer, amount=Decimal("5000"))
+        Payment.objects.create(
+            salesman=self.s1, retailer=self.retailer, amount=Decimal("2000"),
+            mode=Payment.Mode.UPI,
+        )
+        # s2 sold ₹1,500 at Sharma Mobile with no payments
+        Sale.objects.create(salesman=self.s2, retailer=self.other_retailer, amount=Decimal("1500"))
+
+    def test_index_admin_only(self):
+        self.login(self.s1)
+        resp = self.client.get("/dashboard/reports/")
+        self.assertEqual(resp.status_code, 302)
+
+    def test_index_renders_cards(self):
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/reports/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Baaki Aging")
+        self.assertContains(resp, "Daily Closing")
+
+    def test_baaki_aging_buckets_outstanding_retailers(self):
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/reports/baaki-aging/")
+        # Both retailers have Baaki > 0 today, so both land in 0-7d bucket.
+        self.assertContains(resp, "Mobile Shoppy")
+        self.assertContains(resp, "Sharma Mobile")
+        # Grand total = 3,000 + 1,500 = 4,500
+        self.assertContains(resp, "4,500")
+
+    def test_baaki_aging_scoped_to_salesman(self):
+        self.login(self.admin)
+        resp = self.client.get(f"/dashboard/reports/baaki-aging/?salesman={self.s2.pk}")
+        # Only s2's outstanding (1,500 at Sharma)
+        self.assertContains(resp, "Sharma Mobile")
+        self.assertNotContains(resp, "Mobile Shoppy")
+
+    def test_baaki_aging_fifo_handles_full_settlement(self):
+        """A retailer whose payments fully cover all sales should not appear
+        in the aging report, even if individual sales exist."""
+        # Pay off the remaining ₹3,000 at Mobile Shoppy
+        Payment.objects.create(
+            salesman=self.s1, retailer=self.retailer, amount=Decimal("3000"),
+            mode=Payment.Mode.CASH,
+        )
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/reports/baaki-aging/")
+        # Mobile Shoppy is fully settled (Baaki=0), should not appear; Sharma still owes 1,500.
+        self.assertNotContains(resp, "Mobile Shoppy")
+        self.assertContains(resp, "Sharma Mobile")
+
+    def test_daily_closing_today(self):
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/reports/daily-closing/")
+        self.assertEqual(resp.status_code, 200)
+        # Total Udhar today = 5,000 + 1,500 = 6,500
+        self.assertContains(resp, "6,500")
+        # Total Jama today = 2,000
+        self.assertContains(resp, "2,000")
+        # Net Baaki Change = 6,500 - 2,000 = 4,500
+        self.assertContains(resp, "4,500")
+
+    def test_daily_closing_scoped_to_salesman(self):
+        self.login(self.admin)
+        resp = self.client.get(f"/dashboard/reports/daily-closing/?salesman={self.s2.pk}")
+        # Only s2's ₹1,500 sale appears
+        self.assertContains(resp, "1,500")
+        # s1's 5,000 sale should be filtered out of the headlines
+        # (could still appear in salesman-list option text — check for the row context)
+        # Use a sufficiently specific Tailwind-safe string:
+        self.assertNotContains(resp, "6,500")
+
+    def test_daily_closing_admin_only(self):
+        self.login(self.s1)
+        resp = self.client.get("/dashboard/reports/daily-closing/")
+        self.assertEqual(resp.status_code, 302)
+
+    def test_aging_htmx_returns_partial(self):
+        self.login(self.admin)
+        resp = self.client.get(
+            "/dashboard/reports/baaki-aging/", HTTP_HX_REQUEST="true"
+        )
+        body = resp.content.decode()
+        self.assertNotIn("<html", body)
+        self.assertIn("Grand Total Outstanding", body)
+
+
 class HtmxLiveSearchTests(_ViewBase):
     """HTMX requests return just the results partial, not the full page."""
 

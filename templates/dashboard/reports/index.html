@@ -1,0 +1,46 @@
+{% extends "dashboard/_base.html" %}
+
+{% block title %}Reports · Ganpati Owner{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <div class="text-[10px] uppercase tracking-wide text-slate-400">Owner Dashboard</div>
+    <h1 class="text-2xl font-bold text-slate-900">Reports</h1>
+</div>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <a href="{% url 'core:reports_baaki_aging' %}" class="bg-white rounded-2xl border border-slate-200 p-5 hover:border-red-300 hover:shadow-sm">
+        <div class="flex items-center gap-3 mb-2">
+            <span class="w-10 h-10 rounded-lg bg-red-50 text-red-500 flex items-center justify-center text-xl">⏱</span>
+            <h2 class="text-base font-bold text-slate-900">Baaki Aging</h2>
+        </div>
+        <p class="text-sm text-slate-600">Outstanding Baaki per retailer, bucketed by oldest unpaid sale's age (0–7 / 8–15 / 16–30 / 31–60 / 60+ days). The flagship report — tells you which loans are getting risky.</p>
+    </a>
+
+    <a href="{% url 'core:reports_daily_closing' %}" class="bg-white rounded-2xl border border-slate-200 p-5 hover:border-red-300 hover:shadow-sm">
+        <div class="flex items-center gap-3 mb-2">
+            <span class="w-10 h-10 rounded-lg bg-slate-50 text-slate-600 flex items-center justify-center text-xl">📅</span>
+            <h2 class="text-base font-bold text-slate-900">Daily Closing</h2>
+        </div>
+        <p class="text-sm text-slate-600">For any past date: total Udhar, total Jama by mode, per-salesman breakdown, every entry. Hand this to the accountant.</p>
+    </a>
+
+    <div class="bg-slate-50 rounded-2xl border border-dashed border-slate-200 p-5 opacity-70">
+        <div class="flex items-center gap-3 mb-2">
+            <span class="w-10 h-10 rounded-lg bg-slate-100 text-slate-400 flex items-center justify-center text-xl">📊</span>
+            <h2 class="text-base font-bold text-slate-500">Salesman Performance</h2>
+            <span class="text-[10px] uppercase tracking-wide text-slate-400">coming next</span>
+        </div>
+        <p class="text-sm text-slate-500">Per-salesman stats over a date range — entries, Udhar issued, Jama collected by mode.</p>
+    </div>
+
+    <div class="bg-slate-50 rounded-2xl border border-dashed border-slate-200 p-5 opacity-70">
+        <div class="flex items-center gap-3 mb-2">
+            <span class="w-10 h-10 rounded-lg bg-slate-100 text-slate-400 flex items-center justify-center text-xl">📄</span>
+            <h2 class="text-base font-bold text-slate-500">Retailer Statement</h2>
+            <span class="text-[10px] uppercase tracking-wide text-slate-400">coming next</span>
+        </div>
+        <p class="text-sm text-slate-500">Printable per-retailer ledger over a date range with running Baaki. Useful for shopkeepers disputing balances.</p>
+    </div>
+</div>
+{% endblock %}
