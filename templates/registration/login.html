@@ -16,9 +16,9 @@
         <form method="post" class="space-y-4">
             {% csrf_token %}
 
-            {% if form.errors %}
+            {% if form.non_field_errors %}
             <div class="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700">
-                Username ya password galat hai. Phir se try karein.
+                {% for error in form.non_field_errors %}{{ error }}{% if not forloop.last %}<br>{% endif %}{% endfor %}
             </div>
             {% endif %}
 

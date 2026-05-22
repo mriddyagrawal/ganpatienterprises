@@ -3,6 +3,14 @@ Seed a fresh dev database with the minimum data needed to smoke-test the app:
 one admin (superuser), one salesman, three retailers.
 
 Idempotent — re-running the command is safe; existing rows are left alone.
+
+WARNING — local-development use only. The hardcoded credentials below
+(`admin / admin123`, `salesman1 / salesman123`) are deliberately weak so
+they're easy to type during smoke tests. Before this app is ever reachable
+from outside the owner's laptop:
+  1. Delete or disable both seeded accounts (Django Admin → Users).
+  2. Re-create the real owner with a strong password.
+  3. Remove or guard this command (e.g., refuse to run unless DEBUG=True).
 """
 
 from django.contrib.auth import get_user_model

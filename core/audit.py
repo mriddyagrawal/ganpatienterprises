@@ -9,6 +9,8 @@ views that call `log_change` directly.
 
 from typing import Any
 
+from django.db import models as djmodels
+
 from .models import AuditLog
 
 
@@ -22,11 +24,24 @@ def _coerce(value: Any) -> Any:
 
 
 def snapshot(instance) -> dict[str, Any]:
-    """Capture a JSON-serializable snapshot of all concrete fields on `instance`."""
-    return {
-        f.name: _coerce(getattr(instance, f.name))
-        for f in instance._meta.fields
-    }
+    """Capture a JSON-serializable snapshot of all concrete fields on `instance`.
+
+    For ForeignKey fields the snapshot stores both the underlying id (e.g.,
+    `retailer_id: 7`) and the human-readable repr (e.g., `retailer: "Mobile
+    Shoppy"`). The id preserves a stable reference to the related row; the
+    repr makes the log readable when someone is reading it months later. If
+    only the repr were stored, renames or edits on the related row would
+    silently destroy the link back — the audit log would no longer be
+    forensic.
+    """
+    out: dict[str, Any] = {}
+    for f in instance._meta.fields:
+        if isinstance(f, djmodels.ForeignKey):
+            out[f.attname] = getattr(instance, f.attname)
+            out[f.name] = _coerce(getattr(instance, f.name))
+        else:
+            out[f.name] = _coerce(getattr(instance, f.name))
+    return out
 
 
 def log_change(*, actor, instance, action: str, before: dict | None = None) -> AuditLog:

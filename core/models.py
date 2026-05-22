@@ -2,8 +2,9 @@ from datetime import timedelta
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
-from django.db import models
+from django.db import models, transaction
 from django.db.models import (
     DecimalField,
     OuterRef,
@@ -165,7 +166,7 @@ class _LedgerEntry(models.Model):
         related_name="%(class)ss",
     )
     amount = models.DecimalField(
-        max_digits=11,
+        max_digits=9,
         decimal_places=2,
         validators=_AMOUNT_VALIDATORS,
     )
@@ -180,8 +181,18 @@ class _LedgerEntry(models.Model):
         abstract = True
         ordering = ["-occurred_at"]
 
+    def clean(self):
+        super().clean()
+        if self.is_deleted and not (self.deleted_reason or "").strip():
+            raise ValidationError(
+                {"deleted_reason": "Reason is required when an entry is marked deleted."}
+            )
+
+    @transaction.atomic
     def save(self, *args, **kwargs):
         # Auto-attach to a Visit on first save when one isn't explicitly set.
+        # Wrapped in a transaction so an empty Visit can't be orphaned if the
+        # subsequent insert fails a DB constraint.
         if self.visit_id is None and self.salesman_id and self.retailer_id:
             occurred_at = self.occurred_at or timezone.now()
             self.visit = Visit.attach(
@@ -200,6 +211,10 @@ class Sale(_LedgerEntry):
             models.CheckConstraint(
                 condition=Q(amount__gt=0),
                 name="sale_amount_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(is_deleted=False) | ~Q(deleted_reason=""),
+                name="sale_delete_requires_reason",
             ),
         ]
 
@@ -221,6 +236,10 @@ class Payment(_LedgerEntry):
             models.CheckConstraint(
                 condition=Q(amount__gt=0),
                 name="payment_amount_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(is_deleted=False) | ~Q(deleted_reason=""),
+                name="payment_delete_requires_reason",
             ),
         ]
 

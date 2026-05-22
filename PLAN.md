@@ -50,7 +50,7 @@ No JavaScript framework, no separate frontend codebase. One Django project, one 
 - `phone`
 - `role` — enum: `admin` | `salesman`
 - `is_active` (Django default)
-- `created_at`
+- `date_joined` — Django's built-in creation timestamp on `AbstractUser`. Serves as `created_at` for this entity; no separate `created_at` field is added.
 
 #### `Retailer`
 - `id`

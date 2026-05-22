@@ -84,13 +84,18 @@ class SaleAdmin(AuditedModelAdmin):
     list_filter = ("is_deleted", "salesman", "occurred_at")
     search_fields = ("retailer__name", "salesman__username", "salesman__full_name", "notes")
     date_hierarchy = "occurred_at"
-    autocomplete_fields = ("retailer", "salesman")
-    readonly_fields = ("visit", "created_at", "updated_at")
+    autocomplete_fields = ("retailer", "salesman", "visit")
     fieldsets = (
         (None, {"fields": ("retailer", "salesman", "amount", "occurred_at", "notes")}),
         ("Deletion", {"fields": ("is_deleted", "deleted_reason"), "classes": ("collapse",)}),
         ("Internal", {"fields": ("visit", "created_at", "updated_at"), "classes": ("collapse",)}),
     )
+
+    def get_readonly_fields(self, request, obj=None):
+        # On add, the Visit is assigned automatically. On change, admins may
+        # reassign it (PLAN §3.5 explicitly allows admin reassignment).
+        base = ("created_at", "updated_at")
+        return base if obj is not None else ("visit",) + base
 
 
 # ---------------------------------------------------------------------------
@@ -104,13 +109,16 @@ class PaymentAdmin(AuditedModelAdmin):
     list_filter = ("mode", "is_deleted", "salesman", "occurred_at")
     search_fields = ("retailer__name", "salesman__username", "salesman__full_name", "notes")
     date_hierarchy = "occurred_at"
-    autocomplete_fields = ("retailer", "salesman")
-    readonly_fields = ("visit", "created_at", "updated_at")
+    autocomplete_fields = ("retailer", "salesman", "visit")
     fieldsets = (
         (None, {"fields": ("retailer", "salesman", "amount", "mode", "occurred_at", "notes")}),
         ("Deletion", {"fields": ("is_deleted", "deleted_reason"), "classes": ("collapse",)}),
         ("Internal", {"fields": ("visit", "created_at", "updated_at"), "classes": ("collapse",)}),
     )
+
+    def get_readonly_fields(self, request, obj=None):
+        base = ("created_at", "updated_at")
+        return base if obj is not None else ("visit",) + base
 
 
 # ---------------------------------------------------------------------------
