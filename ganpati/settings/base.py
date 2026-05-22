@@ -110,8 +110,11 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
-# Custom user model gets wired up in Phase 1 (accounts.User).
-# Until then, Django's default User is used.
+AUTH_USER_MODEL = "accounts.User"
+
+LOGIN_URL = "/login/"
+LOGIN_REDIRECT_URL = "/"
+LOGOUT_REDIRECT_URL = "/login/"
 
 # ---------------------------------------------------------------------------
 # I18n / time
