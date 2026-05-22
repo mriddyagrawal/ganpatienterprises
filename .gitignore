@@ -1,0 +1,42 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+/build/
+/dist/
+*.egg
+
+# Virtual envs (managed by uv)
+.venv/
+venv/
+env/
+
+# uv keeps uv.lock committed; tooling caches are not
+.uv/
+.python-version
+
+# Django
+db.sqlite3
+db.sqlite3-journal
+/staticfiles/
+/media/
+
+# Tailwind build output — committed for now so a fresh clone runs without
+# requiring a build step. Regenerate with `manage.py tailwind build`.
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
