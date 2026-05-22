@@ -671,6 +671,61 @@ class ReportsTests(_ViewBase):
         body = resp.content.decode("utf-8-sig")
         self.assertIn("when,type,amount,salesman,notes,running_baaki", body)
 
+    def test_aging_overpayment_carries_forward(self):
+        """Reviewer Watch on `2d376fc`: an overpayment should be applied
+        to the next incoming sale rather than discarded.
+
+        Sequence: ₹100 sale, ₹150 payment (₹50 overpayment), ₹200 sale.
+        - Baaki = 100 + 200 − 150 = ₹150 (covered by `with_baaki`).
+        - FIFO must apply the ₹50 credit to the ₹200 sale, leaving
+          remaining=₹150 for that second sale. Without the carry-forward
+          the queue would hold ₹200, divergent from the displayed Baaki.
+        """
+        from .reports import _oldest_unsettled_sale
+
+        # Wipe existing fixtures on this retailer for a clean run.
+        Sale.objects.filter(retailer=self.retailer).delete()
+        Payment.objects.filter(retailer=self.retailer).delete()
+
+        now = timezone.now()
+        Sale.objects.create(
+            salesman=self.s1, retailer=self.retailer, amount=Decimal("100"),
+            occurred_at=now - timedelta(days=30),
+        )
+        Payment.objects.create(
+            salesman=self.s1, retailer=self.retailer, amount=Decimal("150"),
+            mode=Payment.Mode.UPI, occurred_at=now - timedelta(days=20),
+        )
+        Sale.objects.create(
+            salesman=self.s1, retailer=self.retailer, amount=Decimal("200"),
+            occurred_at=now - timedelta(days=10),
+        )
+
+        result = _oldest_unsettled_sale(self.retailer, None, now)
+        self.assertIsNotNone(result)
+        # Oldest unsettled = the ₹200 sale (the ₹100 was fully covered
+        # plus a ₹50 credit which was applied here, leaving ₹150 remaining).
+        self.assertEqual(result["remaining"], Decimal("150"))
+        # Its age = 10 days.
+        self.assertEqual(result["age_days"], 10)
+
+    def test_aging_future_dated_sale_clamps_to_zero(self):
+        """Future-dated sales (admin backdate gone wrong) clamp to age 0
+        instead of falling through to the 60+ default bucket."""
+        from .reports import _oldest_unsettled_sale
+
+        Sale.objects.filter(retailer=self.retailer).delete()
+        Payment.objects.filter(retailer=self.retailer).delete()
+
+        now = timezone.now()
+        Sale.objects.create(
+            salesman=self.s1, retailer=self.retailer, amount=Decimal("100"),
+            occurred_at=now + timedelta(days=5),  # future-dated
+        )
+        result = _oldest_unsettled_sale(self.retailer, None, now)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["age_days"], 0)
+
 
 class HtmxLiveSearchTests(_ViewBase):
     """HTMX requests return just the results partial, not the full page."""

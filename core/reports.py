@@ -70,6 +70,16 @@ def index(request):
 def daily_closing(request):
     """For a given date: Σ Udhar, Σ Jama by mode, per-salesman breakdown,
     list of entries. Scope-aware via salesman selector.
+
+    Note: the top-tile totals include **every** non-deleted Sale/Payment
+    on the date (regardless of the author's role). The per-salesman
+    breakdown table only iterates User rows with `role=SALESMAN`. In
+    practice that's identical because Sales and Payments are only
+    authored through the salesman flow (which is salesman-only) or
+    Django Admin (where the owner picks a real salesman). The two will
+    diverge only if an admin records an entry with themselves as the
+    `salesman` FK — typically a smoke-test artifact, not a real
+    workflow.
     """
     date = _parse_date(request.GET.get("date"))
     salesman = _parse_salesman(request.GET.get("salesman"))
@@ -175,6 +185,18 @@ def _oldest_unsettled_sale(retailer, salesman, as_of) -> Optional[dict]:
 
     Returns dict {age_days, occurred_at, remaining} or None if nothing
     is unsettled (Baaki <= 0).
+
+    Overpayments are carried forward as a virtual credit and applied to
+    the next sale that arrives. This keeps the FIFO queue's internal
+    remaining-amounts consistent with the all-time Baaki even when the
+    retailer overpays at some point. Without this, a sequence like
+    [sale 100, payment 150, sale 200] would leave the queue holding
+    ₹200 for the second sale, but the true accounting view is ₹150
+    (the ₹50 overpayment should reduce the next sale).
+
+    `age_days` is clamped to >= 0 so an accidentally future-dated sale
+    falls into the 0-7 bucket, not the 60+ bucket via the default arm
+    of the bucket lookup.
     """
     sales = list(
         retailer.sales.filter(is_deleted=False)
@@ -189,18 +211,28 @@ def _oldest_unsettled_sale(retailer, salesman, as_of) -> Optional[dict]:
     if not sales:
         return None
 
-    # Merge chronologically.
+    # Merge chronologically. Stable sort puts sales before payments at the
+    # same exact instant (insertion order) — the right assumption for the
+    # normal "buy then pay" flow.
     events = (
         [{"date": s.occurred_at, "kind": "sale", "amount": s.amount} for s in sales]
         + [{"date": p.occurred_at, "kind": "payment", "amount": p.amount} for p in payments]
     )
     events.sort(key=lambda e: e["date"])
 
-    # FIFO queue of [date, remaining_amount].
-    queue = []
+    queue = []  # FIFO of [date, remaining_amount] for unsettled sales.
+    credit = Decimal("0")  # Carry-forward from overpayments.
+
     for ev in events:
         if ev["kind"] == "sale":
-            queue.append([ev["date"], ev["amount"]])
+            sale_remaining = ev["amount"]
+            # Apply any standing credit to this sale before queuing it.
+            if credit > 0:
+                applied = min(credit, sale_remaining)
+                sale_remaining -= applied
+                credit -= applied
+            if sale_remaining > 0:
+                queue.append([ev["date"], sale_remaining])
         else:
             remaining = ev["amount"]
             while queue and remaining > 0:
@@ -210,15 +242,18 @@ def _oldest_unsettled_sale(retailer, salesman, as_of) -> Optional[dict]:
                 else:
                     queue[0][1] -= remaining
                     remaining = Decimal("0")
-            # Any leftover remaining is overpayment; ignored for aging.
+            # Leftover payment becomes a credit against the next sale.
+            if remaining > 0:
+                credit += remaining
 
     if not queue:
         return None
 
     oldest_date, oldest_remaining = queue[0]
+    age_days = max(0, (as_of - oldest_date).days)
     return {
         "occurred_at": oldest_date,
-        "age_days": (as_of - oldest_date).days,
+        "age_days": age_days,
         "remaining": oldest_remaining,
     }
 
