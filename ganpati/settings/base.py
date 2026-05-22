@@ -20,7 +20,9 @@ environ.Env.read_env(BASE_DIR / ".env")
 # Core security
 # ---------------------------------------------------------------------------
 
-SECRET_KEY = env("DJANGO_SECRET_KEY", default="dev-only-insecure-replace-in-prod")
+# SECRET_KEY is intentionally NOT set here. Each environment-specific
+# settings module (dev.py, prod.py) is responsible for assigning it.
+# Dev provides a clearly-insecure fallback; prod must require it via env.
 
 DEBUG = env.bool("DJANGO_DEBUG", default=False)
 

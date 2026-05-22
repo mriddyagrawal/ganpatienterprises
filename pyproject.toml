@@ -11,6 +11,4 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = [
-    "cookiecutter>=2.7.1",
-]
+dev = []

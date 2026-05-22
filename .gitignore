@@ -18,9 +18,9 @@ __pycache__/
 venv/
 env/
 
-# uv keeps uv.lock committed; tooling caches are not
+# uv keeps uv.lock and .python-version committed for reproducibility;
+# its own caches are not.
 .uv/
-.python-version
 
 # Django
 db.sqlite3
@@ -28,8 +28,9 @@ db.sqlite3-journal
 /staticfiles/
 /media/
 
-# Tailwind build output — committed for now so a fresh clone runs without
-# requiring a build step. Regenerate with `manage.py tailwind build`.
+# Tailwind build output (theme/static/css/dist/) is intentionally NOT ignored
+# so a fresh clone runs without a build step. Regenerate with:
+#   uv run python manage.py tailwind build
 
 # Editor / OS
 .idea/

@@ -25,10 +25,10 @@ This is the source-of-truth document for how the web app gets built. Business co
 
 ## 2. Stack details
 
-- **Python** 3.12 (managed by `uv`)
-- **Django** 5.x
+- **Python** 3.14 (managed by `uv`; `.python-version` is committed)
+- **Django** 6.0.x (uv resolved the latest available stable when Phase 0 was bootstrapped; 6.0 is GA and supports Python 3.12–3.14 cleanly. Older `5.x` from earlier plan revisions has been superseded.)
 - **Database:** SQLite for V1 local dev. When public hosting goes up (see `futureplans.md` #3), swap to managed **PostgreSQL 16** via `DATABASE_URL`.
-- **Tailwind CSS** via `django-tailwind` (or the standalone Tailwind CLI if django-tailwind feels heavy)
+- **Tailwind CSS** via `django-tailwind` (standalone v4 template — no Node dependency)
 - **HTMX** for partial-page updates (form submissions without full reloads, live Baaki updates, retailer autocomplete)
 - **django-unfold** for a modern Django Admin theme — optional, but cheap upgrade
 - **Lucide icons** (MIT-licensed, large library, mobile-friendly)
