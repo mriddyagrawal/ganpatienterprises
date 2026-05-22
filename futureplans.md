@@ -175,3 +175,25 @@ The owner can work around this today by re-assigning entries via Django Admin / 
 - A salesman leaves or changes routes.
 - The owner runs a reconciliation and sees mismatched Baaki between the live app and the salesman's actual customer relationships.
 - The team grows past four salesmen and territory boundaries become real.
+
+---
+
+## 9. Configurable Retailer Incentive Rate
+
+**The idea.** Ganpati Enterprises currently gives every retailer a **3% bonus** on top of what they pay — pay ₹1,000, receive ₹1,030 in Jio credit. This is a business rule, not a Jio norm. The Jio import pipeline divides every imported `face_value` by 1.03 to compute what the retailer actually owes, and that's the number Baaki/reports run on.
+
+The rate is currently a Python constant (`RETAILER_DISCOUNT = Decimal("1.03")`) in the importer. If the rate ever changes — for any of the reasons below — it'd be cleaner to surface it as a configurable setting instead of editing code.
+
+**What this could look like.**
+- **Single global rate** stored in a `BusinessSetting` singleton (or `django-constance`) — admin edits via Django Admin, importer reads from DB.
+- **Per-retailer rate override** — some retailers get 3%, some get 2.5%, special wholesale shops get 5%. Adds a nullable `Retailer.incentive_rate` that falls back to the global rate when null.
+- Either way, every imported Sale stores the rate that was in effect when it was created (so historical math doesn't drift if the global rate changes later).
+
+**Why deferred.**
+- Rate is genuinely a constant today and the owner doesn't anticipate changing it. Adding a setting now is speculative.
+- The `face_value` field on Sale already stores Jio's delivered amount, so we keep enough information to re-derive the implied rate retroactively if needed (`face_value / amount` = rate at the time).
+
+**Triggers to revisit.**
+- The owner adopts a different incentive rate for new sales going forward.
+- A specific retailer negotiates a non-standard rate.
+- Quarterly / promotional incentive variations become routine.
