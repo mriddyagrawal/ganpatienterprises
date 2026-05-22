@@ -339,6 +339,22 @@ class EntryNewTests(_ViewBase):
         self.assertIn(("cash", "Cash"), choices)
         self.assertIn(("upi", "UPI"), choices)
 
+    def test_entry_form_renders_both_cash_and_upi_labels(self):
+        """Regression: the entry-form template was reading `radio.choice_value`
+        (which doesn't exist on BoundWidget) instead of `radio.data.value`,
+        so both Cash and UPI radios rendered with empty labels. This test
+        fetches the form HTML and asserts both human labels are present."""
+        self.login(self.s1)
+        resp = self.client.get(f"/dukaan/{self.retailer.pk}/entry/")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode()
+        # Both labels show up exactly where the template renders them.
+        self.assertIn("💵 Cash", body)
+        self.assertIn("📱 UPI", body)
+        # And the value attributes on the radios are right.
+        self.assertIn('value="cash"', body)
+        self.assertIn('value="upi"', body)
+
     def test_entry_new_with_missing_kind_shows_error(self):
         """A POST without a `kind` (tampered hidden input) must surface the
         problem instead of silently re-rendering an empty form."""
