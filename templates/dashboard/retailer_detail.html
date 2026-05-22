@@ -1,0 +1,38 @@
+{% extends "dashboard/_base.html" %}
+{% load humanize %}
+
+{% block title %}{{ retailer.name }} · Ganpati Owner{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <a href="{% url 'core:dashboard_retailers' %}" class="text-sm text-slate-500 hover:text-slate-700 inline-flex items-center gap-1">← Retailers</a>
+</div>
+
+{# Filter bar — salesman scope #}
+<div id="retailer-detail-filter-wrap" class="bg-white rounded-xl border border-slate-200 p-3 mb-5 flex flex-wrap items-center gap-3 text-sm">
+    <span class="text-slate-500 text-xs uppercase tracking-wide">Salesman</span>
+    <select name="salesman"
+            class="border border-slate-300 rounded-md px-2 py-1.5 min-w-[180px]"
+            hx-get="{% url 'core:dashboard_retailer_detail' retailer.pk %}"
+            hx-trigger="change"
+            hx-target="#retailer-detail-main"
+            hx-include="closest #retailer-detail-filter-wrap"
+            hx-push-url="true">
+        <option value="all" {% if not selected_salesman %}selected{% endif %}>All salesmen</option>
+        {% for sm in all_salesmen %}
+        <option value="{{ sm.pk }}" {% if selected_salesman and selected_salesman.pk == sm.pk %}selected{% endif %}>
+            {{ sm.full_name|default:sm.username }}
+        </option>
+        {% endfor %}
+    </select>
+
+    <span class="ml-auto flex gap-2">
+        <a href="/admin/core/retailer/{{ retailer.pk }}/change/"
+           class="text-xs text-slate-500 hover:text-slate-700 border border-slate-200 rounded-md px-2 py-1">Edit retailer (Django Admin)</a>
+    </span>
+</div>
+
+<div id="retailer-detail-main">
+    {% include "dashboard/_retailer_detail_main.html" %}
+</div>
+{% endblock %}

@@ -400,6 +400,72 @@ class AdminDashboardTodayTests(_ViewBase):
         self.assertEqual(resp.status_code, 200)
 
 
+class AdminDashboardRetailersTests(_ViewBase):
+    """Phase 3 A2 + A3 — admin's Retailers list and detail."""
+
+    def setUp(self):
+        Sale.objects.create(salesman=self.s1, retailer=self.retailer, amount=Decimal("5000"))
+        Sale.objects.create(salesman=self.s2, retailer=self.retailer, amount=Decimal("3000"))
+        Sale.objects.create(salesman=self.s1, retailer=self.other_retailer, amount=Decimal("100"))
+
+    def test_retailers_list_admin_only(self):
+        self.login(self.s1)
+        resp = self.client.get("/dashboard/retailers/")
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp["Location"], "/")
+
+    def test_retailers_list_global_baaki(self):
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/retailers/")
+        self.assertEqual(resp.status_code, 200)
+        # Both retailers visible; Mobile Shoppy baaki = 5000+3000 = 8000
+        self.assertContains(resp, "8,000")
+
+    def test_retailers_list_scoped_to_salesman(self):
+        self.login(self.admin)
+        resp = self.client.get(f"/dashboard/retailers/?salesman={self.s2.pk}")
+        # Only s2's contribution: 3,000 at Mobile Shoppy
+        self.assertContains(resp, "3,000")
+        # 8,000 (global) shouldn't appear as a Baaki figure
+        self.assertNotContains(resp, "8,000")
+
+    def test_retailers_search_filter(self):
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/retailers/?q=Sharma")
+        self.assertContains(resp, "Sharma Mobile")
+        self.assertNotContains(resp, "Mobile Shoppy")
+
+    def test_retailer_detail_admin_only(self):
+        self.login(self.s1)
+        resp = self.client.get(f"/dashboard/retailers/{self.retailer.pk}/")
+        self.assertEqual(resp.status_code, 302)
+
+    def test_retailer_detail_default_shows_all_salesmens_entries(self):
+        self.login(self.admin)
+        resp = self.client.get(f"/dashboard/retailers/{self.retailer.pk}/")
+        # Both salesmen's amounts visible
+        self.assertContains(resp, "5,000")
+        self.assertContains(resp, "3,000")
+
+    def test_retailer_detail_scoped_filters_timeline(self):
+        self.login(self.admin)
+        resp = self.client.get(f"/dashboard/retailers/{self.retailer.pk}/?salesman={self.s2.pk}")
+        self.assertContains(resp, "3,000")
+        # s1's entry should not appear in the scoped timeline
+        # (5,000 is s1's, only s2's 3,000 is in scope)
+        # Check the headline Baaki shows 3,000, not 8,000
+        self.assertNotContains(resp, "8,000")
+
+    def test_retailer_detail_htmx_returns_partial(self):
+        self.login(self.admin)
+        resp = self.client.get(
+            f"/dashboard/retailers/{self.retailer.pk}/", HTTP_HX_REQUEST="true"
+        )
+        body = resp.content.decode()
+        self.assertNotIn("<html", body)
+        self.assertNotIn("<nav", body)
+
+
 class HtmxLiveSearchTests(_ViewBase):
     """HTMX requests return just the results partial, not the full page."""
 

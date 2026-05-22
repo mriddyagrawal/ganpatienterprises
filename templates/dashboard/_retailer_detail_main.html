@@ -1,0 +1,67 @@
+{% load humanize %}
+
+<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5">
+    <div class="flex items-start justify-between mb-4">
+        <div class="min-w-0">
+            <h1 class="text-xl font-bold text-slate-900">{{ retailer.name }}</h1>
+            {% if retailer.owner_name %}<div class="text-sm text-slate-600">{{ retailer.owner_name }}</div>{% endif %}
+            <div class="text-xs text-slate-500 mt-1">
+                {% if retailer.area %}{{ retailer.area }}{% endif %}
+                {% if retailer.phone %} · 📞 {{ retailer.phone }}{% endif %}
+            </div>
+            {% if retailer.notes %}<div class="text-xs text-slate-600 italic mt-2">{{ retailer.notes }}</div>{% endif %}
+        </div>
+        <div class="text-right pl-4">
+            <div class="text-[10px] uppercase tracking-wide text-slate-400">
+                {% if selected_salesman %}{{ selected_salesman.full_name|default:selected_salesman.username }} ka Baaki{% else %}Total Baaki{% endif %}
+            </div>
+            <div class="text-3xl font-bold {% if baaki > 0 %}text-red-500{% elif baaki < 0 %}text-green-600{% else %}text-slate-400{% endif %} whitespace-nowrap">
+                {% if baaki < 0 %}−{% endif %}₹{{ baaki|floatformat:0|intcomma|cut:"-" }}
+            </div>
+        </div>
+    </div>
+</div>
+
+<h2 class="text-sm font-semibold text-slate-700 mb-2">Ledger</h2>
+<div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
+            <tr>
+                <th class="text-left px-4 py-2 font-medium">When</th>
+                <th class="text-left px-4 py-2 font-medium">Type</th>
+                <th class="text-left px-4 py-2 font-medium hidden sm:table-cell">Salesman</th>
+                <th class="text-right px-4 py-2 font-medium">Amount</th>
+                <th class="text-right px-4 py-2 font-medium">Edit</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for kind, e in timeline %}
+            <tr class="border-t border-slate-100 hover:bg-slate-50 {% if e.is_deleted %}opacity-50{% endif %}">
+                <td class="px-4 py-2.5 text-slate-600 whitespace-nowrap">{{ e.occurred_at|date:"d M Y, h:i A" }}</td>
+                <td class="px-4 py-2.5">
+                    {% if kind == "sale" %}
+                    <span class="text-red-500 font-medium">↗ Udhar{% if e.is_deleted %} <span class="text-[10px] uppercase tracking-wide ml-1">deleted</span>{% endif %}</span>
+                    {% else %}
+                    <span class="text-green-600 font-medium">↘ Jama <span class="text-xs font-normal text-slate-500">({{ e.get_mode_display }})</span>{% if e.is_deleted %} <span class="text-[10px] uppercase tracking-wide ml-1">deleted</span>{% endif %}</span>
+                    {% endif %}
+                    {% if e.notes %}<div class="text-xs text-slate-500 italic mt-0.5">{{ e.notes }}</div>{% endif %}
+                    {% if e.is_deleted and e.deleted_reason %}<div class="text-xs text-red-500 mt-0.5">{{ e.deleted_reason }}</div>{% endif %}
+                </td>
+                <td class="px-4 py-2.5 text-slate-600 hidden sm:table-cell">{{ e.salesman.full_name|default:e.salesman.username }}</td>
+                <td class="px-4 py-2.5 text-right font-semibold whitespace-nowrap {% if kind == 'sale' %}text-red-500{% else %}text-green-600{% endif %} {% if e.is_deleted %}line-through{% endif %}">
+                    ₹{{ e.amount|floatformat:0|intcomma }}
+                </td>
+                <td class="px-4 py-2.5 text-right">
+                    {% if kind == "sale" %}
+                    <a href="/admin/core/sale/{{ e.pk }}/change/" class="text-xs text-slate-500 hover:text-slate-700">Edit</a>
+                    {% else %}
+                    <a href="/admin/core/payment/{{ e.pk }}/change/" class="text-xs text-slate-500 hover:text-slate-700">Edit</a>
+                    {% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 text-sm">Is dukaan ke liye koi entry nahi mila{% if selected_salesman %} (filter: {{ selected_salesman.full_name|default:selected_salesman.username }}){% endif %}.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

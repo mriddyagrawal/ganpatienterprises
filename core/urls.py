@@ -16,4 +16,6 @@ urlpatterns = [
 
     # Admin dashboard (Phase 3)
     path("dashboard/", dashboard.today, name="dashboard_today"),
+    path("dashboard/retailers/", dashboard.retailers, name="dashboard_retailers"),
+    path("dashboard/retailers/<int:pk>/", dashboard.retailer_detail, name="dashboard_retailer_detail"),
 ]

@@ -1,0 +1,55 @@
+{% extends "dashboard/_base.html" %}
+{% load humanize %}
+
+{% block title %}Retailers · Ganpati Owner{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <div class="text-[10px] uppercase tracking-wide text-slate-400">Owner Dashboard</div>
+    <h1 class="text-2xl font-bold text-slate-900">Retailers</h1>
+</div>
+
+{# Filter bar #}
+<div id="retailers-filter-wrap" class="bg-white rounded-xl border border-slate-200 p-3 mb-5 flex flex-wrap items-center gap-3 text-sm">
+    <input type="search" name="q" value="{{ search }}" placeholder="Naam ya area dhundein…"
+           class="flex-1 min-w-[220px] border border-slate-300 rounded-md px-3 py-1.5"
+           autocomplete="off"
+           hx-get="{% url 'core:dashboard_retailers' %}"
+           hx-trigger="keyup changed delay:300ms, search"
+           hx-target="#retailers-results"
+           hx-include="closest #retailers-filter-wrap"
+           hx-push-url="true">
+
+    <select name="salesman"
+            class="border border-slate-300 rounded-md px-2 py-1.5 min-w-[180px]"
+            hx-get="{% url 'core:dashboard_retailers' %}"
+            hx-trigger="change"
+            hx-target="#retailers-results"
+            hx-include="closest #retailers-filter-wrap"
+            hx-push-url="true">
+        <option value="all" {% if not selected_salesman %}selected{% endif %}>All salesmen</option>
+        {% for sm in all_salesmen %}
+        <option value="{{ sm.pk }}" {% if selected_salesman and selected_salesman.pk == sm.pk %}selected{% endif %}>
+            {{ sm.full_name|default:sm.username }}
+        </option>
+        {% endfor %}
+    </select>
+
+    <select name="sort"
+            class="border border-slate-300 rounded-md px-2 py-1.5"
+            hx-get="{% url 'core:dashboard_retailers' %}"
+            hx-trigger="change"
+            hx-target="#retailers-results"
+            hx-include="closest #retailers-filter-wrap"
+            hx-push-url="true">
+        <option value="baaki_desc" {% if sort == "baaki_desc" %}selected{% endif %}>Baaki ↓</option>
+        <option value="baaki_asc" {% if sort == "baaki_asc" %}selected{% endif %}>Baaki ↑</option>
+        <option value="name" {% if sort == "name" %}selected{% endif %}>Naam A→Z</option>
+        <option value="recent" {% if sort == "recent" %}selected{% endif %}>Recent updated</option>
+    </select>
+</div>
+
+<div id="retailers-results">
+    {% include "dashboard/_retailers_results.html" %}
+</div>
+{% endblock %}

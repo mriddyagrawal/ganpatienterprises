@@ -1,0 +1,38 @@
+{% load humanize %}
+<div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
+            <tr>
+                <th class="text-left px-4 py-2 font-medium">Dukaan</th>
+                <th class="text-left px-4 py-2 font-medium hidden sm:table-cell">Area</th>
+                <th class="text-right px-4 py-2 font-medium">Baaki</th>
+                <th class="text-right px-4 py-2 font-medium hidden md:table-cell">Last entry</th>
+                <th class="text-right px-4 py-2 font-medium hidden md:table-cell">Days idle</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in retailers %}
+            <tr class="border-t border-slate-100 hover:bg-slate-50">
+                <td class="px-4 py-3">
+                    <a href="{% url 'core:dashboard_retailer_detail' r.pk %}{% if selected_salesman %}?salesman={{ selected_salesman.pk }}{% endif %}"
+                       class="font-medium text-slate-900 hover:text-red-600">{{ r.name }}</a>
+                    {% if r.owner_name %}<div class="text-xs text-slate-500">{{ r.owner_name }}</div>{% endif %}
+                </td>
+                <td class="px-4 py-3 text-slate-600 hidden sm:table-cell">{{ r.area|default:"—" }}</td>
+                <td class="px-4 py-3 text-right font-semibold {% if r.baaki > 0 %}text-red-500{% elif r.baaki < 0 %}text-green-600{% else %}text-slate-400{% endif %}">
+                    {% if r.baaki < 0 %}−{% endif %}₹{{ r.baaki|floatformat:0|intcomma|cut:"-" }}
+                </td>
+                <td class="px-4 py-3 text-right text-slate-600 hidden md:table-cell">
+                    {% if r.last_entry_at %}{{ r.last_entry_at|date:"d M, h:i A" }}{% else %}—{% endif %}
+                </td>
+                <td class="px-4 py-3 text-right text-slate-600 hidden md:table-cell">
+                    {% if r.days_since is not None %}{{ r.days_since }}d{% else %}—{% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 text-sm">Koi dukaan nahi mila.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+<div class="text-xs text-slate-500 mt-2">{{ retailers|length }} dukaan{% if selected_salesman %} · scoped to {{ selected_salesman.full_name|default:selected_salesman.username }}{% endif %}</div>

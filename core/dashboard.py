@@ -16,8 +16,8 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
-from django.db.models import Q, Sum
-from django.shortcuts import render
+from django.db.models import Max, Q, Sum
+from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 
 from .models import Payment, Retailer, Sale, Visit
@@ -157,5 +157,122 @@ def today(request):
 
     template = (
         "dashboard/_today_main.html" if request.htmx else "dashboard/today.html"
+    )
+    return render(request, template, ctx)
+
+
+# ---------------------------------------------------------------------------
+# A2 — Retailers list
+# ---------------------------------------------------------------------------
+
+
+@admin_required
+def retailers(request):
+    """A2 — searchable, sortable retailer list with scope-aware Baaki and
+    last-activity metadata. Salesman selector follows PLAN §5 Phase 3.
+    """
+    salesman = _parse_salesman(request.GET.get("salesman"))
+    search = (request.GET.get("q") or "").strip()
+    sort = request.GET.get("sort", "baaki_desc")
+
+    qs = Retailer.objects.filter(is_active=True).with_baaki(salesman=salesman)
+    if search:
+        qs = qs.filter(Q(name__icontains=search) | Q(area__icontains=search))
+
+    if sort == "name":
+        qs = qs.order_by("name")
+    elif sort == "baaki_asc":
+        qs = qs.order_by("baaki", "name")
+    elif sort == "recent":
+        qs = qs.order_by("-updated_at")
+    else:
+        sort = "baaki_desc"
+        qs = qs.order_by("-baaki", "name")
+
+    retailers_list = list(qs)
+
+    # Per-retailer last-activity. For now, an N+1 against sales + payments —
+    # acceptable while the retailer count stays small (V1 has dozens). When it
+    # crosses ~500 rewrite as two Subquery+Max annotations + Coalesce.
+    now = timezone.now()
+    for r in retailers_list:
+        sales_qs = r.sales.filter(is_deleted=False)
+        payments_qs = r.payments.filter(is_deleted=False)
+        if salesman:
+            sales_qs = sales_qs.filter(salesman=salesman)
+            payments_qs = payments_qs.filter(salesman=salesman)
+        last_sale = sales_qs.aggregate(d=Max("occurred_at"))["d"]
+        last_payment = payments_qs.aggregate(d=Max("occurred_at"))["d"]
+        candidates = [d for d in (last_sale, last_payment) if d]
+        r.last_entry_at = max(candidates) if candidates else None
+        r.days_since = (now - r.last_entry_at).days if r.last_entry_at else None
+
+    all_salesmen = (
+        User.objects.filter(role=User.Role.SALESMAN, is_active=True)
+        .order_by("full_name", "username")
+    )
+
+    ctx = {
+        "active": "retailers",
+        "retailers": retailers_list,
+        "search": search,
+        "sort": sort,
+        "selected_salesman": salesman,
+        "all_salesmen": all_salesmen,
+    }
+    template = (
+        "dashboard/_retailers_results.html"
+        if request.htmx
+        else "dashboard/retailers.html"
+    )
+    return render(request, template, ctx)
+
+
+# ---------------------------------------------------------------------------
+# A3 — Retailer detail (admin's full ledger view, scope-aware)
+# ---------------------------------------------------------------------------
+
+
+@admin_required
+def retailer_detail(request, pk):
+    """A3 — full retailer ledger with salesman selector.
+
+    Admins see every entry by default; picking one salesman scopes the
+    timeline + Baaki to that salesman's contribution (matches what they'd
+    see in the salesman view). Edit / delete on individual entries opens
+    the corresponding Django Admin page — no inline editor yet.
+    """
+    retailer = get_object_or_404(Retailer, pk=pk)
+    salesman = _parse_salesman(request.GET.get("salesman"))
+
+    sales_qs = retailer.sales.select_related("salesman").order_by("-occurred_at")
+    payments_qs = retailer.payments.select_related("salesman").order_by("-occurred_at")
+    if salesman:
+        sales_qs = sales_qs.filter(salesman=salesman)
+        payments_qs = payments_qs.filter(salesman=salesman)
+
+    timeline = sorted(
+        [("sale", s) for s in sales_qs] + [("payment", p) for p in payments_qs],
+        key=lambda pair: pair[1].occurred_at,
+        reverse=True,
+    )
+
+    all_salesmen = (
+        User.objects.filter(role=User.Role.SALESMAN, is_active=True)
+        .order_by("full_name", "username")
+    )
+
+    ctx = {
+        "active": "retailers",
+        "retailer": retailer,
+        "baaki": retailer.baaki_for(salesman),
+        "timeline": timeline,
+        "selected_salesman": salesman,
+        "all_salesmen": all_salesmen,
+    }
+    template = (
+        "dashboard/_retailer_detail_main.html"
+        if request.htmx
+        else "dashboard/retailer_detail.html"
     )
     return render(request, template, ctx)
