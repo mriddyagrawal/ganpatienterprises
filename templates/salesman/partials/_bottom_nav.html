@@ -1,0 +1,30 @@
+{# `active` should be set in the view context: "dukaan", "naya", or "aaj". #}
+<nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-20 pb-safe">
+    <div class="grid grid-cols-3 max-w-md mx-auto h-16 items-center">
+        <a href="{% url 'core:dukaan' %}"
+           class="flex flex-col items-center gap-0.5 {% if active == 'dukaan' %}text-red-500{% else %}text-slate-500{% endif %}">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                <polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+            <span class="text-[11px] font-medium">Dukaan</span>
+        </a>
+
+        <a href="{% url 'core:entry_new_picker' %}"
+           class="flex flex-col items-center justify-end relative h-full">
+            <span class="absolute -top-6 w-14 h-14 rounded-full bg-red-500 text-white flex items-center justify-center text-3xl font-light shadow-lg ring-4 ring-slate-50">+</span>
+            <span class="text-[11px] font-medium text-slate-500 mb-2">Naya Entry</span>
+        </a>
+
+        <a href="{% url 'core:aaj' %}"
+           class="flex flex-col items-center gap-0.5 {% if active == 'aaj' %}text-red-500{% else %}text-slate-500{% endif %}">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+            <span class="text-[11px] font-medium">Aaj</span>
+        </a>
+    </div>
+</nav>

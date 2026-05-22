@@ -1,0 +1,124 @@
+{% extends "salesman/_base.html" %}
+{% load humanize %}
+
+{% block title %}{% if is_edit %}Edit{% else %}Naya{% endif %} Entry — {{ retailer.name }}{% endblock %}
+
+{% block content %}
+<div class="p-4">
+    <a href="{% url 'core:retailer_detail' retailer.pk %}" class="text-sm text-slate-500 mb-2 inline-flex items-center gap-1">
+        ← {{ retailer.name }}
+    </a>
+
+    <div class="bg-white rounded-xl border border-slate-200 p-3 mb-4 flex items-center justify-between">
+        <div>
+            <div class="text-sm font-semibold text-slate-900">{{ retailer.name }}</div>
+            {% if retailer.area %}<div class="text-xs text-slate-500">{{ retailer.area }}</div>{% endif %}
+        </div>
+        <div class="text-right">
+            <div class="text-[10px] uppercase tracking-wide text-slate-400">Abhi Baaki</div>
+            <div class="font-bold {% if baaki > 0 %}text-red-500{% elif baaki < 0 %}text-green-600{% else %}text-slate-400{% endif %}">
+                {% if baaki < 0 %}−{% endif %}₹{{ baaki|floatformat:0|intcomma|cut:"-" }}
+            </div>
+        </div>
+    </div>
+
+    {# Kind toggle (Udhar / Jama) — Udhar is red, Jama is green. #}
+    {% if not is_edit %}
+    <div class="grid grid-cols-2 gap-2 mb-4">
+        <button type="button" onclick="document.getElementById('udhar-form').classList.remove('hidden'); document.getElementById('jama-form').classList.add('hidden'); document.getElementById('btn-udhar').classList.add('ring-2','ring-red-500'); document.getElementById('btn-jama').classList.remove('ring-2','ring-green-500');"
+                id="btn-udhar"
+                class="bg-red-50 border-2 border-red-200 text-red-600 font-bold py-5 rounded-xl text-lg {% if kind == 'udhar' %}ring-2 ring-red-500{% endif %}">
+            ↗ Udhar
+            <div class="text-[11px] font-normal text-red-500 mt-0.5">Recharge diya</div>
+        </button>
+        <button type="button" onclick="document.getElementById('jama-form').classList.remove('hidden'); document.getElementById('udhar-form').classList.add('hidden'); document.getElementById('btn-jama').classList.add('ring-2','ring-green-500'); document.getElementById('btn-udhar').classList.remove('ring-2','ring-red-500');"
+                id="btn-jama"
+                class="bg-green-50 border-2 border-green-200 text-green-700 font-bold py-5 rounded-xl text-lg {% if kind == 'jama' %}ring-2 ring-green-500{% endif %}">
+            ↘ Jama
+            <div class="text-[11px] font-normal text-green-600 mt-0.5">Paisa mila</div>
+        </button>
+    </div>
+    {% endif %}
+
+    {# --- Udhar form --- #}
+    <form id="udhar-form" method="post" class="space-y-3 {% if is_edit and kind != 'udhar' %}hidden{% endif %}{% if not is_edit and kind != 'udhar' %} hidden{% endif %}">
+        {% csrf_token %}
+        <input type="hidden" name="kind" value="udhar">
+
+        <div>
+            <label class="block text-xs uppercase tracking-wide text-slate-500 mb-1">Amount (₹)</label>
+            {{ sale_form.amount }}
+            {% if sale_form.amount.errors %}
+            <div class="text-xs text-red-500 mt-1">{{ sale_form.amount.errors|join:" " }}</div>
+            {% endif %}
+        </div>
+
+        <div>
+            {{ sale_form.notes }}
+            {% if sale_form.notes.errors %}
+            <div class="text-xs text-red-500 mt-1">{{ sale_form.notes.errors|join:" " }}</div>
+            {% endif %}
+        </div>
+
+        <button type="submit"
+                class="w-full bg-red-500 hover:bg-red-600 text-white font-semibold py-4 rounded-xl text-base"
+                onclick="return confirmIfLarge(this.form, '{{ sanity_warn_amount|floatformat:0 }}');">
+            {% if is_edit %}Save Changes{% else %}Udhar Save Karein{% endif %}
+        </button>
+    </form>
+
+    {# --- Jama form --- #}
+    <form id="jama-form" method="post" class="space-y-3 {% if is_edit and kind != 'jama' %}hidden{% endif %}{% if not is_edit and kind != 'jama' %} hidden{% endif %}">
+        {% csrf_token %}
+        <input type="hidden" name="kind" value="jama">
+
+        <div>
+            <label class="block text-xs uppercase tracking-wide text-slate-500 mb-1">Amount (₹)</label>
+            {{ payment_form.amount }}
+            {% if payment_form.amount.errors %}
+            <div class="text-xs text-red-500 mt-1">{{ payment_form.amount.errors|join:" " }}</div>
+            {% endif %}
+        </div>
+
+        <div>
+            <label class="block text-xs uppercase tracking-wide text-slate-500 mb-1">Mode</label>
+            <div class="grid grid-cols-2 gap-2">
+                {% for radio in payment_form.mode %}
+                <label class="flex items-center justify-center gap-2 border-2 border-slate-200 has-[:checked]:border-green-500 has-[:checked]:bg-green-50 rounded-lg py-3 cursor-pointer font-semibold text-slate-700 has-[:checked]:text-green-700">
+                    <span class="sr-only">{{ radio.choice_label }}</span>
+                    {{ radio.tag }}
+                    <span>{% if radio.choice_value == 'cash' %}💵 Cash{% else %}📱 UPI{% endif %}</span>
+                </label>
+                {% endfor %}
+            </div>
+            {% if payment_form.mode.errors %}
+            <div class="text-xs text-red-500 mt-1">{{ payment_form.mode.errors|join:" " }}</div>
+            {% endif %}
+        </div>
+
+        <div>
+            {{ payment_form.notes }}
+            {% if payment_form.notes.errors %}
+            <div class="text-xs text-red-500 mt-1">{{ payment_form.notes.errors|join:" " }}</div>
+            {% endif %}
+        </div>
+
+        <button type="submit"
+                class="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-4 rounded-xl text-base"
+                onclick="return confirmIfLarge(this.form, '{{ sanity_warn_amount|floatformat:0 }}');">
+            {% if is_edit %}Save Changes{% else %}Jama Save Karein{% endif %}
+        </button>
+    </form>
+</div>
+
+<script>
+function confirmIfLarge(form, threshold) {
+    const amt = parseFloat(form.querySelector("[name=amount]").value || "0");
+    const t = parseFloat(threshold || "100000");
+    if (!isNaN(amt) && amt >= t) {
+        return confirm("₹" + amt + " bahut bada amount hai. Pakka sahi hai?");
+    }
+    return true;
+}
+</script>
+{% endblock %}

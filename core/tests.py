@@ -192,6 +192,219 @@ class BaakiScopingTests(TestCase):
         self.assertEqual(self.retailer.baaki_for(self.s2), Decimal("3000"))
 
 
+# ---------------------------------------------------------------------------
+# Phase 2 view tests
+# ---------------------------------------------------------------------------
+
+
+class _ViewBase(TestCase):
+    """Shared setup for view tests: two salesmen + one admin + a retailer."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.s1 = User.objects.create_user(
+            username="s1", password="x", full_name="Salesman One",
+            role=User.Role.SALESMAN,
+        )
+        cls.s2 = User.objects.create_user(
+            username="s2", password="x", full_name="Salesman Two",
+            role=User.Role.SALESMAN,
+        )
+        cls.admin = User.objects.create_user(
+            username="adm", password="x", full_name="Owner",
+            role=User.Role.ADMIN, is_staff=True, is_superuser=True,
+        )
+        cls.retailer = Retailer.objects.create(name="Mobile Shoppy", area="Market")
+        cls.other_retailer = Retailer.objects.create(name="Sharma Mobile", area="Market")
+
+    def login(self, user):
+        self.client.force_login(user)
+
+
+class RoleGuardTests(_ViewBase):
+    def test_anonymous_redirected_to_login(self):
+        for url in ["/", "/aaj/", f"/dukaan/{self.retailer.pk}/", "/entry/new/"]:
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, 302, url)
+            self.assertIn("/login/", resp["Location"], url)
+
+    def test_admin_bounced_from_dukaan_root_to_admin_panel(self):
+        self.login(self.admin)
+        resp = self.client.get("/")
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp["Location"], "/admin/")
+
+    def test_admin_bounced_from_salesman_views(self):
+        self.login(self.admin)
+        resp = self.client.get("/aaj/")
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp["Location"], "/admin/")
+
+    def test_salesman_can_see_dukaan(self):
+        self.login(self.s1)
+        resp = self.client.get("/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Mobile Shoppy")
+
+
+class DukaanListTests(_ViewBase):
+    def test_baaki_column_is_scoped_to_logged_in_salesman(self):
+        # s1: ₹5000 udhar, s2: ₹3000 udhar at same retailer
+        Sale.objects.create(salesman=self.s1, retailer=self.retailer, amount=Decimal("5000"))
+        Sale.objects.create(salesman=self.s2, retailer=self.retailer, amount=Decimal("3000"))
+
+        self.login(self.s1)
+        resp = self.client.get("/")
+        self.assertContains(resp, "5,000")
+        self.assertNotContains(resp, "3,000")  # s2's amount is invisible to s1
+
+        self.login(self.s2)
+        resp = self.client.get("/")
+        self.assertContains(resp, "3,000")
+        self.assertNotContains(resp, "5,000")
+
+    def test_search_filters_by_name(self):
+        self.login(self.s1)
+        resp = self.client.get("/?q=Sharma")
+        self.assertContains(resp, "Sharma Mobile")
+        self.assertNotContains(resp, "Mobile Shoppy")
+
+
+class RetailerDetailTests(_ViewBase):
+    def setUp(self):
+        Sale.objects.create(salesman=self.s1, retailer=self.retailer, amount=Decimal("1000"), notes="s1-note")
+        Sale.objects.create(salesman=self.s2, retailer=self.retailer, amount=Decimal("2000"), notes="s2-note")
+
+    def test_timeline_shows_only_logged_in_salesmans_entries(self):
+        self.login(self.s1)
+        resp = self.client.get(f"/dukaan/{self.retailer.pk}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "s1-note")
+        self.assertNotContains(resp, "s2-note")
+
+    def test_baaki_card_is_scoped(self):
+        self.login(self.s2)
+        resp = self.client.get(f"/dukaan/{self.retailer.pk}/")
+        self.assertContains(resp, "2,000")
+        self.assertNotContains(resp, "1,000")
+
+
+class EntryNewTests(_ViewBase):
+    def test_create_udhar(self):
+        self.login(self.s1)
+        resp = self.client.post(
+            f"/dukaan/{self.retailer.pk}/entry/",
+            {"kind": "udhar", "amount": "500", "notes": "phase-2-test-udhar"},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp["Location"], f"/dukaan/{self.retailer.pk}/")
+        sale = Sale.objects.get(notes="phase-2-test-udhar")
+        self.assertEqual(sale.salesman, self.s1)
+        self.assertEqual(sale.amount, Decimal("500"))
+        # Visit auto-attached
+        self.assertIsNotNone(sale.visit_id)
+        # Audit logged
+        from .models import AuditLog
+        self.assertTrue(
+            AuditLog.objects.filter(entity_type="Sale", entity_id=sale.pk, action="create").exists()
+        )
+
+    def test_create_jama_with_mode(self):
+        self.login(self.s1)
+        resp = self.client.post(
+            f"/dukaan/{self.retailer.pk}/entry/",
+            {"kind": "jama", "amount": "200", "mode": "upi", "notes": "phase-2-test-jama"},
+        )
+        self.assertEqual(resp.status_code, 302)
+        payment = Payment.objects.get(notes="phase-2-test-jama")
+        self.assertEqual(payment.mode, "upi")
+
+    def test_jama_without_mode_rejected(self):
+        self.login(self.s1)
+        resp = self.client.post(
+            f"/dukaan/{self.retailer.pk}/entry/",
+            {"kind": "jama", "amount": "200", "notes": "no-mode"},
+        )
+        self.assertEqual(resp.status_code, 200)  # re-renders form with errors
+        self.assertFalse(Payment.objects.filter(notes="no-mode").exists())
+
+
+class EntryEditDeleteTests(_ViewBase):
+    def setUp(self):
+        self.sale = Sale.objects.create(
+            salesman=self.s1, retailer=self.retailer, amount=Decimal("500"),
+        )
+
+    def test_edit_within_24h_works(self):
+        self.login(self.s1)
+        resp = self.client.post(
+            f"/entry/udhar/{self.sale.pk}/edit/",
+            {"amount": "750", "notes": "edited"},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.sale.refresh_from_db()
+        self.assertEqual(self.sale.amount, Decimal("750"))
+
+    def test_edit_other_salesmans_entry_returns_404(self):
+        self.login(self.s2)
+        resp = self.client.post(
+            f"/entry/udhar/{self.sale.pk}/edit/",
+            {"amount": "750"},
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_edit_after_24h_forbidden(self):
+        # Backdate the sale by tampering with created_at.
+        Sale.objects.filter(pk=self.sale.pk).update(
+            created_at=timezone.now() - timedelta(hours=25)
+        )
+        self.login(self.s1)
+        resp = self.client.post(
+            f"/entry/udhar/{self.sale.pk}/edit/",
+            {"amount": "750"},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_delete_requires_reason(self):
+        self.login(self.s1)
+        # Empty reason → form re-renders, not deleted
+        resp = self.client.post(
+            f"/entry/udhar/{self.sale.pk}/delete/",
+            {"reason": "   "},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.sale.refresh_from_db()
+        self.assertFalse(self.sale.is_deleted)
+
+    def test_delete_with_reason_soft_deletes(self):
+        self.login(self.s1)
+        resp = self.client.post(
+            f"/entry/udhar/{self.sale.pk}/delete/",
+            {"reason": "Wrong amount"},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.sale.refresh_from_db()
+        self.assertTrue(self.sale.is_deleted)
+        self.assertEqual(self.sale.deleted_reason, "Wrong amount")
+
+
+class AajReportTests(_ViewBase):
+    def test_today_numbers_scoped_to_logged_in_salesman(self):
+        Sale.objects.create(salesman=self.s1, retailer=self.retailer, amount=Decimal("100"))
+        Sale.objects.create(salesman=self.s2, retailer=self.retailer, amount=Decimal("9999"))
+        Payment.objects.create(
+            salesman=self.s1, retailer=self.retailer, amount=Decimal("50"),
+            mode=Payment.Mode.CASH,
+        )
+
+        self.login(self.s1)
+        resp = self.client.get("/aaj/")
+        self.assertEqual(resp.status_code, 200)
+        # s1's own Udhar (100) appears; s2's 9999 must not be reported as s1's
+        self.assertContains(resp, "₹100")
+        self.assertNotContains(resp, "9,999")
+
+
 class DeletedReasonEnforcementTests(TestCase):
     """is_deleted=True requires a non-empty deleted_reason (PLAN §3)."""
 

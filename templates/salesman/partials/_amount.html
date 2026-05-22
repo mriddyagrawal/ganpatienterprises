@@ -1,0 +1,10 @@
+{# Renders a ₹ amount with red/green color rules for Baaki. #}
+{# Usage: {% include "salesman/partials/_amount.html" with value=baaki %} #}
+{% load humanize %}
+{% if value > 0 %}
+<span class="text-red-500 font-semibold">₹{{ value|floatformat:0|intcomma }}</span>
+{% elif value < 0 %}
+<span class="text-green-600 font-semibold">−₹{{ value|floatformat:0|intcomma|cut:"-" }}</span>
+{% else %}
+<span class="text-slate-400 font-semibold">₹0</span>
+{% endif %}

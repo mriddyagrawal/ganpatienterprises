@@ -1,0 +1,46 @@
+{% extends "salesman/_base.html" %}
+{% load humanize %}
+
+{% block title %}Delete entry — Confirm{% endblock %}
+
+{% block content %}
+<div class="p-4">
+    <a href="{% url 'core:retailer_detail' entry.retailer_id %}" class="text-sm text-slate-500 mb-2 inline-flex items-center gap-1">
+        ← {{ entry.retailer.name }}
+    </a>
+
+    <div class="bg-white rounded-2xl border border-red-200 p-5">
+        <h1 class="text-lg font-bold text-slate-900 mb-1">Delete karna hai?</h1>
+        <p class="text-sm text-slate-600 mb-4">Yeh entry delete ho jayegi:</p>
+
+        <div class="bg-slate-50 rounded-lg p-3 mb-4">
+            {% if kind == "sale" %}
+            <div class="font-semibold text-red-500">↗ Udhar ₹{{ entry.amount|floatformat:0|intcomma }}</div>
+            {% else %}
+            <div class="font-semibold text-green-600">↘ Jama ₹{{ entry.amount|floatformat:0|intcomma }} <span class="text-xs font-normal text-slate-500">({{ entry.get_mode_display }})</span></div>
+            {% endif %}
+            <div class="text-xs text-slate-500 mt-1">{{ entry.retailer.name }} · {{ entry.occurred_at|date:"d M, h:i A" }}</div>
+            {% if entry.notes %}<div class="text-xs text-slate-600 italic mt-1">{{ entry.notes }}</div>{% endif %}
+        </div>
+
+        <form method="post" class="space-y-3">
+            {% csrf_token %}
+            <div>
+                <label class="block text-xs uppercase tracking-wide text-slate-500 mb-1">Reason</label>
+                {{ form.reason }}
+                {% if form.reason.errors %}
+                <div class="text-xs text-red-500 mt-1">{{ form.reason.errors|join:" " }}</div>
+                {% endif %}
+            </div>
+
+            <button type="submit" class="w-full bg-red-500 hover:bg-red-600 text-white font-semibold py-3 rounded-lg">
+                Confirm Delete
+            </button>
+            <a href="{% url 'core:retailer_detail' entry.retailer_id %}"
+               class="block w-full text-center text-slate-600 hover:text-slate-900 font-medium py-2">
+                Cancel
+            </a>
+        </form>
+    </div>
+</div>
+{% endblock %}
