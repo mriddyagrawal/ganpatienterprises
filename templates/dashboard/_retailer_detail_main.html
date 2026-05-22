@@ -53,9 +53,9 @@
                 </td>
                 <td class="px-4 py-2.5 text-right">
                     {% if kind == "sale" %}
-                    <a href="/admin/core/sale/{{ e.pk }}/change/" class="text-xs text-slate-500 hover:text-slate-700">Edit</a>
+                    <a href="{% url 'admin:core_sale_change' e.pk %}" class="text-xs text-slate-500 hover:text-slate-700">Edit</a>
                     {% else %}
-                    <a href="/admin/core/payment/{{ e.pk }}/change/" class="text-xs text-slate-500 hover:text-slate-700">Edit</a>
+                    <a href="{% url 'admin:core_payment_change' e.pk %}" class="text-xs text-slate-500 hover:text-slate-700">Edit</a>
                     {% endif %}
                 </td>
             </tr>
