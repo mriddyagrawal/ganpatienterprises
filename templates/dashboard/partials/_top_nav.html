@@ -1,0 +1,27 @@
+{# active should be set in view context: "today", "retailers", "salesmen". #}
+<nav class="bg-white border-b border-slate-200 sticky top-0 z-20">
+    <div class="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
+        <div class="flex items-center gap-6">
+            <a href="{% url 'core:dashboard_today' %}" class="flex items-center gap-2">
+                <span class="w-8 h-8 rounded-lg bg-red-500 text-white flex items-center justify-center font-bold">G</span>
+                <span class="text-sm font-bold text-slate-900">Ganpati Owner</span>
+            </a>
+            <div class="hidden sm:flex items-center gap-4 text-sm">
+                <a href="{% url 'core:dashboard_today' %}"
+                   class="{% if active == 'today' %}text-red-500 font-semibold{% else %}text-slate-600 hover:text-slate-900{% endif %}">Aaj</a>
+                <span class="text-slate-300">·</span>
+                <a href="/admin/" class="text-slate-600 hover:text-slate-900">Django Admin</a>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <div class="text-right">
+                <div class="text-xs text-slate-500 leading-tight">Owner</div>
+                <div class="text-sm font-semibold text-slate-900 leading-tight">{{ user.full_name|default:user.username }}</div>
+            </div>
+            <form method="post" action="{% url 'logout' %}">
+                {% csrf_token %}
+                <button type="submit" class="text-xs text-slate-500 hover:text-slate-700">Logout</button>
+            </form>
+        </div>
+    </div>
+</nav>

@@ -1,0 +1,49 @@
+{% extends "dashboard/_base.html" %}
+{% load humanize %}
+
+{% block title %}Aaj — {{ date|date:"d M Y" }} · Ganpati Owner{% endblock %}
+
+{% block content %}
+<div class="mb-4 flex items-center justify-between">
+    <div>
+        <div class="text-[10px] uppercase tracking-wide text-slate-400">Today's Report</div>
+        <h1 class="text-2xl font-bold text-slate-900">{{ date|date:"d M Y, l" }}</h1>
+    </div>
+    {% if not is_today %}
+    <a href="{% url 'core:dashboard_today' %}" class="text-xs text-slate-500 hover:text-slate-700">← Aaj par jaaye</a>
+    {% endif %}
+</div>
+
+{# Filter bar — date + salesman selector. HTMX swaps #today-main on change. #}
+<form id="today-filter"
+      hx-get="{% url 'core:dashboard_today' %}"
+      hx-trigger="change"
+      hx-target="#today-main"
+      hx-push-url="true"
+      class="bg-white rounded-xl border border-slate-200 p-3 mb-5 flex flex-wrap items-center gap-3 text-sm">
+    <div class="flex items-center gap-2">
+        <label for="date-input" class="text-slate-500 text-xs uppercase tracking-wide">Date</label>
+        <input id="date-input" type="date" name="date" value="{{ date_iso }}"
+               class="border border-slate-300 rounded-md px-2 py-1.5">
+    </div>
+    <div class="flex items-center gap-2">
+        <label for="salesman-input" class="text-slate-500 text-xs uppercase tracking-wide">Salesman</label>
+        <select id="salesman-input" name="salesman"
+                class="border border-slate-300 rounded-md px-2 py-1.5 min-w-[180px]">
+            <option value="all" {% if not selected_salesman %}selected{% endif %}>All salesmen</option>
+            {% for sm in all_salesmen %}
+            <option value="{{ sm.pk }}" {% if selected_salesman and selected_salesman.pk == sm.pk %}selected{% endif %}>
+                {{ sm.full_name|default:sm.username }}
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+    <noscript>
+        <button type="submit" class="bg-slate-900 text-white rounded-md px-3 py-1.5 text-sm">Apply</button>
+    </noscript>
+</form>
+
+<div id="today-main">
+    {% include "dashboard/_today_main.html" %}
+</div>
+{% endblock %}

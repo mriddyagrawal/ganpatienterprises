@@ -1,10 +1,10 @@
 """
-Role-based access guards for salesman-facing views.
+Role-based access guards.
 
-Phase 2 wires every salesman view through `@salesman_required`, which:
-1. Requires authentication (delegates to login_required).
-2. Sends admins to the Django Admin instead — they have their own UI.
-3. Rejects anyone else with a 403.
+- `@salesman_required` (Phase 2): salesman-only views. Admins are bounced
+  to the owner dashboard at `/dashboard/`; non-role users get a 403.
+- `@admin_required` (Phase 3): admin-only views (custom dashboard).
+  Salesmen are bounced back to their app at `/`; non-role users get a 403.
 """
 
 from functools import wraps
@@ -20,9 +20,23 @@ def salesman_required(view_func):
     def wrapped(request, *args, **kwargs):
         user = request.user
         if getattr(user, "is_admin_role", False):
-            return redirect("/admin/")
+            return redirect("/dashboard/")
         if not getattr(user, "is_salesman_role", False):
             return HttpResponseForbidden("Salesman access only.")
+        return view_func(request, *args, **kwargs)
+
+    return wrapped
+
+
+def admin_required(view_func):
+    @wraps(view_func)
+    @login_required
+    def wrapped(request, *args, **kwargs):
+        user = request.user
+        if getattr(user, "is_salesman_role", False):
+            return redirect("/")
+        if not getattr(user, "is_admin_role", False):
+            return HttpResponseForbidden("Admin access only.")
         return view_func(request, *args, **kwargs)
 
     return wrapped

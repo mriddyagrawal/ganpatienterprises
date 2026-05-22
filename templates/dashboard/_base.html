@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="min-h-screen bg-slate-100">
+    {% include "dashboard/partials/_top_nav.html" %}
+
+    <main class="max-w-6xl mx-auto px-4 py-6">
+        {% block content %}{% endblock %}
+    </main>
+</div>
+{% endblock %}

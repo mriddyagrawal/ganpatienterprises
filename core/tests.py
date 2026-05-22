@@ -232,13 +232,13 @@ class RoleGuardTests(_ViewBase):
         self.login(self.admin)
         resp = self.client.get("/")
         self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp["Location"], "/admin/")
+        self.assertEqual(resp["Location"], "/dashboard/")
 
     def test_admin_bounced_from_salesman_views(self):
         self.login(self.admin)
         resp = self.client.get("/aaj/")
         self.assertEqual(resp.status_code, 302)
-        self.assertEqual(resp["Location"], "/admin/")
+        self.assertEqual(resp["Location"], "/dashboard/")
 
     def test_salesman_can_see_dukaan(self):
         self.login(self.s1)
@@ -339,6 +339,65 @@ class EntryNewTests(_ViewBase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "Udhar ya Jama")
         self.assertFalse(Sale.objects.filter(notes="no-kind-test").exists())
+
+
+class AdminDashboardTodayTests(_ViewBase):
+    """Phase 3 A1 — admin's Today's Report view (`/dashboard/`)."""
+
+    def test_salesman_bounced_off_dashboard(self):
+        self.login(self.s1)
+        resp = self.client.get("/dashboard/")
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(resp["Location"], "/")
+
+    def test_anonymous_redirected_to_login(self):
+        resp = self.client.get("/dashboard/")
+        self.assertEqual(resp.status_code, 302)
+        self.assertIn("/login/", resp["Location"])
+
+    def test_admin_sees_dashboard(self):
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Today's Report")
+
+    def test_dashboard_default_shows_global_totals(self):
+        Sale.objects.create(salesman=self.s1, retailer=self.retailer, amount=Decimal("1000"))
+        Sale.objects.create(salesman=self.s2, retailer=self.retailer, amount=Decimal("2500"))
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/")
+        # Global Udhar Diya = 3500
+        self.assertContains(resp, "3,500")
+
+    def test_dashboard_salesman_filter_scopes_totals(self):
+        Sale.objects.create(salesman=self.s1, retailer=self.retailer, amount=Decimal("1000"))
+        Sale.objects.create(salesman=self.s2, retailer=self.retailer, amount=Decimal("2500"))
+        self.login(self.admin)
+        resp = self.client.get(f"/dashboard/?salesman={self.s1.pk}")
+        # Filtered to s1's slice only
+        self.assertContains(resp, "1,000")
+        # s2's amount should not be the headline figure
+        # (it might appear in the salesman-list dropdown name, etc., so check the headline class instead)
+        self.assertNotContains(resp, "3,500")
+
+    def test_dashboard_htmx_returns_partial(self):
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/", HTTP_HX_REQUEST="true")
+        body = resp.content.decode()
+        self.assertNotIn("<html", body)
+        self.assertNotIn("<nav", body)
+        # Main content marker
+        self.assertIn("Udhar Diya", body)
+
+    def test_unknown_salesman_id_falls_back_to_all(self):
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/?salesman=99999")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_invalid_date_falls_back_to_today(self):
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/?date=not-a-date")
+        self.assertEqual(resp.status_code, 200)
 
 
 class HtmxLiveSearchTests(_ViewBase):
