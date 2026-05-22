@@ -2,6 +2,8 @@
 
 This is the source-of-truth document for how the web app gets built. Business context lives in [`BUSINESS_DESCRIPTION.md`](BUSINESS_DESCRIPTION.md); deferred ideas live in [`futureplans.md`](futureplans.md).
 
+> **Active branch: `jio-import`.** The salesman flow has been simplified to **Jama-only** — Udhar comes in from the Jio auto-refill report via the admin import at `/dashboard/import/`. The original "salesmen issue Udhar manually" workflow lives on the `legacy-full-flow` branch and the `v1-full-flow` tag, both pointing at the last commit before the pivot. Sections below have been updated where the flow diverges; legacy guidance is marked **(legacy)**.
+
 ---
 
 ## 1. Locked-in decisions
@@ -11,7 +13,9 @@ This is the source-of-truth document for how the web app gets built. Business co
 | **Tech stack** | Django + HTMX + Tailwind CSS. **Database: SQLite for V1 local dev** (zero install), switching to **PostgreSQL** when public hosting is set up. The Django ORM hides the difference; the only change is a `DATABASE_URL` env var. |
 | **Hosting** | Local development only in V1. Code lives on GitHub; the running app lives on the owner's computer at `http://localhost`. Real hosting (Railway / Render / VPS) is deferred — see `futureplans.md`. |
 | **Auth** | Django session auth, username + password. OTP login is in `futureplans.md`. |
-| **Ledger model** | Pure two-direction: every sale is **Udhar** (debit on retailer), every payment is **Jama** (credit). The running balance is **Baaki**. |
+| **Ledger model** | Pure two-direction: every sale is **Udhar** (debit on retailer), every payment is **Jama** (credit). The running balance is **Baaki**. On the `jio-import` branch, Udhar is sourced from the Jio CSV import; Jama is salesman-entered. |
+| **Udhar source (jio-import branch)** | Imported from Jio's distributor portal (jioconnect → DSM Reports → Order Details) via `/dashboard/import/`. Salesmen no longer create Sales manually; admins can create Sales from Django Admin for the rare non-Jio case. Each imported Sale stores `jio_order_id` (idempotency), `face_value` (Jio's delivered credit), and `amount` = `face_value / 1.03` (the 3% retailer incentive — see [futureplans.md #9](futureplans.md)). |
+| **Retailer assignment (jio-import branch)** | Each `Retailer` has a single `assigned_salesman` FK. Auto-set on first import (from the row's FOS); admin reassigns via Django Admin. **The salesman's Dukaan list and Aaj report show only their assigned retailers** — strict filter, no clutter. Cross-coverage (a salesman recording Jama at another's retailer) is possible via the Entry Picker which is intentionally not filtered. |
 | **No memo handling** in V1 — salesman just opens app and logs to any retailer |
 | **`Visit` entity, auto-grouped** — every Sale and Payment is attached to a Visit. Visits are created automatically using a 15-minute activity window (see §3). The salesman never manually "starts" or "ends" a visit. |
 | **No recharge SKUs.** The business sells rupee-value recharge credits, not specific Jio plans. The data model tracks amounts only. |
@@ -266,9 +270,11 @@ Tasks:
 **S1. Login** — username + password, "remember me" 30 days.
 
 **S2. Dukaan tab (retailers list)**
-- Top: search bar (live filter, HTMX) — searches across all retailers (master list is shared).
+- **Filtered to `assigned_salesman = request.user`** — the salesman sees only their own retailers. (On `legacy-full-flow` the list is unfiltered.)
+- Top: search bar (live filter, HTMX) — searches within the assigned set.
 - Sort toggle: **Baaki (sabse zyada)** [default] | **Naam (A → Z)** | **Recent activity**
-- Each row: shop name, area (small text), **this salesman's Baaki** on the right in red (if owed) / green (if zero or credit). A retailer this salesman has never transacted with shows Baaki = ₹0.
+- Each row: shop name, area (small text), **this salesman's Baaki** on the right in red (if owed) / green (if zero or credit).
+- Empty state when no retailers are assigned yet: "*Koi dukaan nahi hai*" — admin sets assignments via Django Admin or they get auto-set on the first Jio import that mentions them.
 - Tap row → S3
 
 **S3. Retailer detail (the ledger)**
@@ -280,18 +286,17 @@ Tasks:
   - Deleted entries shown struck-through in grey
 - Infinite scroll or "Load more"
 
-**S4. Naya Entry flow**
-- Step 1 (skip if entered from retailer context): pick retailer (searchable list)
-- Step 2: two huge buttons
-  - 🔴 **Udhar** (recharge diya)
-  - 🟢 **Jama** (paisa mila)
-- Step 3: amount entry — large numeric keypad-friendly input, ₹ symbol prefix
-- Step 4 (Jama only): mode — two buttons
+**S4. Naya Entry flow (Jama-only on `jio-import`)**
+- Step 1 (skip if entered from retailer context): pick retailer (searchable list — not filtered by assignment so coverage scenarios still work)
+- Step 2: amount entry — large numeric keypad-friendly input, ₹ symbol prefix
+- Step 3: mode — two buttons
   - **Cash**
   - **UPI**
-- Step 5: notes (optional, single-line, "Notes...")
-- Step 6: confirm screen showing "Aap **₹500 Udhar** add kar rahe ho Mobile Shoppy ke liye. New Baaki: **₹12,900**" with **Save** button
-- After save: success animation, return to retailer detail, see the new row at the top
+- Step 4: notes (optional, single-line, "Notes...")
+- Step 5: save — `₹1 lakh` sanity confirm fires for unusually large amounts
+- After save: return to retailer detail, see the new row at the top
+
+> **Legacy.** On `legacy-full-flow` this screen has the Udhar / Jama toggle. That whole branch of the form is removed on `jio-import` because Udhar now comes from the import pipeline.
 
 **S5. Aaj tab (today's report — salesman view)**
 
@@ -312,8 +317,8 @@ Edit/delete on today's entries follows the 24h window rule.
 
 #### Other tasks
 - Salesman role guard on all views (decorator / middleware)
-- Edit form for an entry (reuses the new-entry flow)
-- Delete confirms with required reason
+- Edit form for a **Jama** entry (reuses the new-entry flow). Sales (Udhar) are read-only on the salesman side; admin edits via Django Admin.
+- Delete confirms with required reason — Jama only.
 
 **Deliverable:** Salesman uses the app on his phone for one real workday. Owner sees the data flow into Django Admin in real time.
 

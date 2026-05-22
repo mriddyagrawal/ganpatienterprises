@@ -53,10 +53,13 @@
                     </div>
                     {% endif %}
                 </div>
-                {% if e.is_editable and not e.is_deleted %}
+                {# Salesmen can only edit/delete their own Jama (Payment) rows.
+                   Sale rows come from the Jio import and are read-only on the
+                   salesman side; admin edits them via Django Admin if needed. #}
+                {% if kind == "payment" and e.is_editable and not e.is_deleted %}
                 <div class="flex flex-col gap-1 text-[11px]">
-                    <a href="{% url 'core:entry_edit' kind e.pk %}" class="text-slate-500 hover:text-slate-700 px-2 py-0.5 rounded border border-slate-200">Edit</a>
-                    <a href="{% url 'core:entry_delete' kind e.pk %}" class="text-red-500 hover:text-red-600 px-2 py-0.5 rounded border border-red-100">Delete</a>
+                    <a href="{% url 'core:entry_edit' 'jama' e.pk %}" class="text-slate-500 hover:text-slate-700 px-2 py-0.5 rounded border border-slate-200">Edit</a>
+                    <a href="{% url 'core:entry_delete' 'jama' e.pk %}" class="text-red-500 hover:text-red-600 px-2 py-0.5 rounded border border-red-100">Delete</a>
                 </div>
                 {% endif %}
             </div>

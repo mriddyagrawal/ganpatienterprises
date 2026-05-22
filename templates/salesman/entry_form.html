@@ -1,7 +1,7 @@
 {% extends "salesman/_base.html" %}
 {% load humanize %}
 
-{% block title %}{% if is_edit %}Edit{% else %}Naya{% endif %} Entry — {{ retailer.name }}{% endblock %}
+{% block title %}{% if is_edit %}Edit{% else %}Naya{% endif %} Jama — {{ retailer.name }}{% endblock %}
 
 {% block content %}
 <div class="p-4">
@@ -22,58 +22,14 @@
         </div>
     </div>
 
-    {% if kind_error %}
-    <div class="rounded-lg bg-red-50 border border-red-200 p-3 text-sm text-red-700 mb-3">
-        {{ kind_error }}
+    <div class="mb-3 flex items-center justify-center gap-2 text-green-700 font-bold text-lg">
+        <span class="text-2xl">↘</span>
+        <span>Jama</span>
+        <span class="text-sm font-normal text-slate-500">— Paisa mila</span>
     </div>
-    {% endif %}
 
-    {# Kind toggle (Udhar / Jama). Hidden in edit mode (kind is fixed). #}
-    {% if not is_edit %}
-    <div class="grid grid-cols-2 gap-2 mb-4">
-        <button type="button" data-toggle="udhar" id="btn-udhar"
-                class="kind-toggle bg-red-50 border-2 border-red-200 text-red-600 font-bold py-5 rounded-xl text-lg {% if kind == 'udhar' %}ring-2 ring-red-500{% endif %}">
-            ↗ Udhar
-            <div class="text-[11px] font-normal text-red-500 mt-0.5">Recharge diya</div>
-        </button>
-        <button type="button" data-toggle="jama" id="btn-jama"
-                class="kind-toggle bg-green-50 border-2 border-green-200 text-green-700 font-bold py-5 rounded-xl text-lg {% if kind == 'jama' %}ring-2 ring-green-500{% endif %}">
-            ↘ Jama
-            <div class="text-[11px] font-normal text-green-600 mt-0.5">Paisa mila</div>
-        </button>
-    </div>
-    {% endif %}
-
-    {# --- Udhar form --- #}
-    <form id="udhar-form" method="post" class="space-y-3 entry-form{% if kind != 'udhar' %} hidden{% endif %}">
+    <form id="jama-form" method="post" class="space-y-3 entry-form">
         {% csrf_token %}
-        <input type="hidden" name="kind" value="udhar">
-
-        <div>
-            <label class="block text-xs uppercase tracking-wide text-slate-500 mb-1">Amount (₹)</label>
-            {{ sale_form.amount }}
-            {% if sale_form.amount.errors %}
-            <div class="text-xs text-red-500 mt-1">{{ sale_form.amount.errors|join:" " }}</div>
-            {% endif %}
-        </div>
-
-        <div>
-            {{ sale_form.notes }}
-            {% if sale_form.notes.errors %}
-            <div class="text-xs text-red-500 mt-1">{{ sale_form.notes.errors|join:" " }}</div>
-            {% endif %}
-        </div>
-
-        <button type="submit"
-                class="w-full bg-red-500 hover:bg-red-600 text-white font-semibold py-4 rounded-xl text-base">
-            {% if is_edit %}Save Changes{% else %}Udhar Save Karein{% endif %}
-        </button>
-    </form>
-
-    {# --- Jama form --- #}
-    <form id="jama-form" method="post" class="space-y-3 entry-form{% if kind != 'jama' %} hidden{% endif %}">
-        {% csrf_token %}
-        <input type="hidden" name="kind" value="jama">
 
         <div>
             <label class="block text-xs uppercase tracking-wide text-slate-500 mb-1">Amount (₹)</label>
@@ -90,9 +46,6 @@
                 <label class="flex items-center justify-center gap-2 border-2 border-slate-200 has-[:checked]:border-green-500 has-[:checked]:bg-green-50 rounded-lg py-3 cursor-pointer font-semibold text-slate-700 has-[:checked]:text-green-700">
                     <span class="sr-only">{{ radio.choice_label }}</span>
                     {{ radio.tag }}
-                    {# BoundWidget exposes the underlying value via data['value']; #}
-                    {# the older `radio.choice_value` access didn't exist and was #}
-                    {# silently empty for every choice. #}
                     <span>{% if radio.data.value == 'cash' %}💵 Cash{% elif radio.data.value == 'upi' %}📱 UPI{% endif %}</span>
                 </label>
                 {% endfor %}
@@ -119,23 +72,6 @@
 <script>
 (function () {
     var SANITY = {{ sanity_warn_amount|floatformat:0 }};
-
-    // Udhar / Jama toggle: show one form, hide the other; ring the active button.
-    document.querySelectorAll(".kind-toggle").forEach(function (btn) {
-        btn.addEventListener("click", function () {
-            var which = btn.getAttribute("data-toggle");
-            var form = document.getElementById(which + "-form");
-            var other = document.getElementById((which === "udhar" ? "jama" : "udhar") + "-form");
-            form.classList.remove("hidden");
-            other.classList.add("hidden");
-            document.getElementById("btn-" + which).classList.add("ring-2", which === "udhar" ? "ring-red-500" : "ring-green-500");
-            document.getElementById("btn-" + (which === "udhar" ? "jama" : "udhar")).classList.remove("ring-2", which === "udhar" ? "ring-green-500" : "ring-red-500");
-            var firstInput = form.querySelector("input[type=number], input[name=amount]");
-            if (firstInput) firstInput.focus();
-        });
-    });
-
-    // ₹1 lakh sanity confirm before saving.
     document.querySelectorAll(".entry-form").forEach(function (form) {
         form.addEventListener("submit", function (e) {
             var amt = parseFloat((form.querySelector("[name=amount]") || {}).value || "0");

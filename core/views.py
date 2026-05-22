@@ -61,15 +61,20 @@ def _entry_model_for_kind(kind: str):
 def dukaan(request):
     """Salesman home (Dukaan tab).
 
-    `@salesman_required` already redirects admins to ``/admin/`` and 403s
-    anyone else, so this view only handles the happy path.
+    Filtered to retailers where `assigned_salesman = request.user`.
+    The assignment is one-to-one (each retailer has at most one
+    responsible salesman), set on retailer auto-create from a Jio
+    import and otherwise edited via Django Admin. Salesmen never see
+    other people's retailers in this list.
 
     Live HTMX search: when ``request.htmx`` is true we return just the
-    results partial so the page doesn't reload on each keystroke
-    (PLAN §5 Phase 2 S2 — "live filter, HTMX").
+    results partial so the page doesn't reload on each keystroke.
     """
     user = request.user
-    qs = Retailer.objects.filter(is_active=True).with_baaki(salesman=user)
+    qs = (
+        Retailer.objects.filter(is_active=True, assigned_salesman=user)
+        .with_baaki(salesman=user)
+    )
 
     search = (request.GET.get("q") or "").strip()
     if search:
@@ -160,42 +165,26 @@ def entry_new_picker(request):
 
 @salesman_required
 def entry_new(request, pk):
-    """Show / process the new-entry form for a specific retailer."""
+    """Show / process the Jama entry form for a specific retailer.
+
+    Salesmen only enter Jama (cash / UPI received). All Udhar comes in
+    via the Jio auto-refill import (see /dashboard/import/). Admins can
+    still create Sales manually via Django Admin if needed for the rare
+    non-Jio case.
+    """
     user = request.user
     retailer = get_object_or_404(Retailer, pk=pk, is_active=True)
-    kind = (request.POST.get("kind") or request.GET.get("kind") or "").strip()
-
-    sale_form = None
-    payment_form = None
-    kind_error = None
 
     if request.method == "POST":
-        if kind == "udhar":
-            sale_form = SaleForm(request.POST)
-            if sale_form.is_valid():
-                sale = sale_form.save(commit=False)
-                sale.retailer = retailer
-                sale.salesman = user
-                sale.save()
-                log_change(actor=user, instance=sale, action=AuditLog.Action.CREATE)
-                return redirect("core:retailer_detail", pk=retailer.pk)
-        elif kind == "jama":
-            payment_form = PaymentForm(request.POST)
-            if payment_form.is_valid():
-                payment = payment_form.save(commit=False)
-                payment.retailer = retailer
-                payment.salesman = user
-                payment.save()
-                log_change(actor=user, instance=payment, action=AuditLog.Action.CREATE)
-                return redirect("core:retailer_detail", pk=retailer.pk)
-        else:
-            # Defensive: hidden `kind` input was tampered with or the JS toggle
-            # state was broken. Don't render a blank form — surface the issue.
-            kind_error = "Udhar ya Jama, kuch ek select karein."
-
-    if sale_form is None:
-        sale_form = SaleForm()
-    if payment_form is None:
+        payment_form = PaymentForm(request.POST)
+        if payment_form.is_valid():
+            payment = payment_form.save(commit=False)
+            payment.retailer = retailer
+            payment.salesman = user
+            payment.save()
+            log_change(actor=user, instance=payment, action=AuditLog.Action.CREATE)
+            return redirect("core:retailer_detail", pk=retailer.pk)
+    else:
         payment_form = PaymentForm()
 
     return render(
@@ -205,9 +194,6 @@ def entry_new(request, pk):
             "active": "naya",
             "retailer": retailer,
             "baaki": retailer.baaki_for(user),
-            "kind": kind,
-            "kind_error": kind_error,
-            "sale_form": sale_form,
             "payment_form": payment_form,
             "sanity_warn_amount": SANITY_WARN_AMOUNT,
             "is_edit": False,
@@ -222,17 +208,19 @@ def entry_new(request, pk):
 
 @salesman_required
 def entry_edit(request, kind, pk):
-    Model, Form = _entry_model_for_kind(kind)
-    if Model is None:
-        return HttpResponseForbidden()
+    """Salesmen can only edit their own Payments (Jama). Imported Sales
+    (Udhar) are read-only on the salesman side — admin edits them via
+    Django Admin if a correction is needed."""
+    if kind != "jama":
+        return HttpResponseForbidden("Salesmen can only edit Jama entries.")
 
     user = request.user
-    entry = get_object_or_404(Model, pk=pk, salesman=user, is_deleted=False)
+    entry = get_object_or_404(Payment, pk=pk, salesman=user, is_deleted=False)
 
     if not _can_salesman_edit(entry, user):
         return HttpResponseForbidden("24-ghante ka edit window khatam ho gaya.")
 
-    form = Form(request.POST or None, instance=entry)
+    form = PaymentForm(request.POST or None, instance=entry)
     if request.method == "POST" and form.is_valid():
         before = snapshot(entry)
         form.save()
@@ -248,10 +236,7 @@ def entry_edit(request, kind, pk):
             "active": None,
             "retailer": entry.retailer,
             "baaki": entry.retailer.baaki_for(user),
-            "kind": kind,
-            # The form being edited; the other one is just a placeholder for the toggle UI.
-            "sale_form": form if kind == "udhar" else SaleForm(),
-            "payment_form": form if kind == "jama" else PaymentForm(),
+            "payment_form": form,
             "sanity_warn_amount": SANITY_WARN_AMOUNT,
             "is_edit": True,
             "entry": entry,
@@ -261,12 +246,12 @@ def entry_edit(request, kind, pk):
 
 @salesman_required
 def entry_delete(request, kind, pk):
-    Model, _ = _entry_model_for_kind(kind)
-    if Model is None:
-        return HttpResponseForbidden()
+    """Salesmen can only soft-delete their own Payments (Jama)."""
+    if kind != "jama":
+        return HttpResponseForbidden("Salesmen can only delete Jama entries.")
 
     user = request.user
-    entry = get_object_or_404(Model, pk=pk, salesman=user, is_deleted=False)
+    entry = get_object_or_404(Payment, pk=pk, salesman=user, is_deleted=False)
 
     if not _can_salesman_edit(entry, user):
         return HttpResponseForbidden("24-ghante ka delete window khatam ho gaya.")
@@ -330,8 +315,13 @@ def aaj(request):
     today_sales_list = list(today_sales.select_related("retailer").order_by("-occurred_at"))
     _attach_editable_flag(today_sales_list, user)
 
-    # Top Baaki dukaan — this salesman's outstanding only
-    scoped_qs = Retailer.objects.with_baaki(salesman=user).filter(baaki__gt=0).order_by("-baaki")
+    # Top Baaki dukaan — only retailers assigned to this salesman with outstanding Baaki.
+    scoped_qs = (
+        Retailer.objects.filter(assigned_salesman=user)
+        .with_baaki(salesman=user)
+        .filter(baaki__gt=0)
+        .order_by("-baaki")
+    )
     top_baaki = list(scoped_qs[:10])
     n_dukaan_with_baaki = scoped_qs.count()
     total_baaki = scoped_qs.aggregate(s=Sum("baaki"))["s"] or Decimal("0")

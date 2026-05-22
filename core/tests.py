@@ -214,8 +214,19 @@ class _ViewBase(TestCase):
             username="adm", password="x", full_name="Owner",
             role=User.Role.ADMIN, is_staff=True, is_superuser=True,
         )
-        cls.retailer = Retailer.objects.create(name="Mobile Shoppy", area="Market")
-        cls.other_retailer = Retailer.objects.create(name="Sharma Mobile", area="Market")
+        # In the new (Phase C) flow, the salesman Dukaan list is filtered to
+        # `assigned_salesman = request.user`. Existing view tests expect to
+        # see both fixture retailers in s1's view, so we assign both to s1
+        # at setup time. Tests that exercise multi-salesman scoping reassign
+        # `other_retailer` to s2 inline.
+        cls.retailer = Retailer.objects.create(
+            name="Mobile Shoppy", area="Market",
+            assigned_salesman=cls.s1,
+        )
+        cls.other_retailer = Retailer.objects.create(
+            name="Sharma Mobile", area="Market",
+            assigned_salesman=cls.s1,
+        )
 
     def login(self, user):
         self.client.force_login(user)
@@ -249,25 +260,55 @@ class RoleGuardTests(_ViewBase):
 
 class DukaanListTests(_ViewBase):
     def test_baaki_column_is_scoped_to_logged_in_salesman(self):
-        # s1: ₹5000 udhar, s2: ₹3000 udhar at same retailer
+        """Per Phase C, the Dukaan list filters by `assigned_salesman`.
+        Each salesman sees their own retailer with their own Baaki."""
+        # Assign Mobile Shoppy to s1 and Sharma Mobile to s2 (override the
+        # _ViewBase default that assigns both to s1).
+        self.retailer.assigned_salesman = self.s1
+        self.retailer.save(update_fields=["assigned_salesman"])
+        self.other_retailer.assigned_salesman = self.s2
+        self.other_retailer.save(update_fields=["assigned_salesman"])
+
         Sale.objects.create(salesman=self.s1, retailer=self.retailer, amount=Decimal("5000"))
-        Sale.objects.create(salesman=self.s2, retailer=self.retailer, amount=Decimal("3000"))
+        Sale.objects.create(salesman=self.s2, retailer=self.other_retailer, amount=Decimal("3000"))
 
         self.login(self.s1)
         resp = self.client.get("/")
+        # Sees own retailer + Baaki.
+        self.assertContains(resp, "Mobile Shoppy")
         self.assertContains(resp, "5,000")
-        self.assertNotContains(resp, "3,000")  # s2's amount is invisible to s1
+        # s2's retailer is invisible.
+        self.assertNotContains(resp, "Sharma Mobile")
+        self.assertNotContains(resp, "3,000")
 
         self.login(self.s2)
         resp = self.client.get("/")
+        self.assertContains(resp, "Sharma Mobile")
         self.assertContains(resp, "3,000")
+        self.assertNotContains(resp, "Mobile Shoppy")
         self.assertNotContains(resp, "5,000")
 
     def test_search_filters_by_name(self):
+        """Search runs inside the assigned-retailer scope. Both fixtures
+        belong to s1 so both are searchable from s1's session."""
         self.login(self.s1)
         resp = self.client.get("/?q=Sharma")
         self.assertContains(resp, "Sharma Mobile")
         self.assertNotContains(resp, "Mobile Shoppy")
+
+    def test_unassigned_salesman_sees_empty_dukaan(self):
+        """A salesman with no assigned retailers sees the empty state,
+        not other salesmen's retailers."""
+        loner = User.objects.create_user(
+            username="loner", password="x",
+            role=User.Role.SALESMAN,
+        )
+        self.login(loner)
+        resp = self.client.get("/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, "Mobile Shoppy")
+        self.assertNotContains(resp, "Sharma Mobile")
+        self.assertContains(resp, "Koi dukaan nahi hai")
 
 
 class RetailerDetailTests(_ViewBase):
@@ -290,46 +331,59 @@ class RetailerDetailTests(_ViewBase):
 
 
 class EntryNewTests(_ViewBase):
-    def test_create_udhar(self):
+    def test_create_jama_creates_payment_and_visit(self):
+        """Phase C: salesman flow is Jama-only. Any POST to the entry
+        endpoint creates a Payment; `kind` in the form data is ignored."""
         self.login(self.s1)
         resp = self.client.post(
             f"/dukaan/{self.retailer.pk}/entry/",
-            {"kind": "udhar", "amount": "500", "notes": "phase-2-test-udhar"},
+            {"amount": "500", "mode": "cash", "notes": "phase-c-jama"},
         )
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(resp["Location"], f"/dukaan/{self.retailer.pk}/")
-        sale = Sale.objects.get(notes="phase-2-test-udhar")
-        self.assertEqual(sale.salesman, self.s1)
-        self.assertEqual(sale.amount, Decimal("500"))
+        payment = Payment.objects.get(notes="phase-c-jama")
+        self.assertEqual(payment.salesman, self.s1)
+        self.assertEqual(payment.amount, Decimal("500"))
+        self.assertEqual(payment.mode, "cash")
         # Visit auto-attached
-        self.assertIsNotNone(sale.visit_id)
+        self.assertIsNotNone(payment.visit_id)
         # Audit logged
         from .models import AuditLog
         self.assertTrue(
-            AuditLog.objects.filter(entity_type="Sale", entity_id=sale.pk, action="create").exists()
+            AuditLog.objects.filter(entity_type="Payment", entity_id=payment.pk, action="create").exists()
         )
 
-    def test_create_jama_with_mode(self):
+    def test_create_jama_with_upi_mode(self):
         self.login(self.s1)
         resp = self.client.post(
             f"/dukaan/{self.retailer.pk}/entry/",
-            {"kind": "jama", "amount": "200", "mode": "upi", "notes": "phase-2-test-jama"},
+            {"amount": "200", "mode": "upi", "notes": "phase-c-test-jama-upi"},
         )
         self.assertEqual(resp.status_code, 302)
-        payment = Payment.objects.get(notes="phase-2-test-jama")
+        payment = Payment.objects.get(notes="phase-c-test-jama-upi")
         self.assertEqual(payment.mode, "upi")
 
     def test_jama_without_mode_rejected(self):
         self.login(self.s1)
         resp = self.client.post(
             f"/dukaan/{self.retailer.pk}/entry/",
-            {"kind": "jama", "amount": "200", "notes": "no-mode"},
+            {"amount": "200", "notes": "no-mode"},
         )
         self.assertEqual(resp.status_code, 200)  # re-renders form with errors
         self.assertFalse(Payment.objects.filter(notes="no-mode").exists())
 
-    def test_payment_form_mode_has_no_blank_choice_placeholder(self):
-        """Placeholder so the test order doesn't shift."""
+    def test_udhar_post_does_not_create_a_sale(self):
+        """A tampered POST that looks like the old Udhar form (kind=udhar,
+        no `mode`) must NOT create a Sale. The view runs the Jama form,
+        which rejects it because `mode` is missing."""
+        self.login(self.s1)
+        resp = self.client.post(
+            f"/dukaan/{self.retailer.pk}/entry/",
+            {"kind": "udhar", "amount": "500", "notes": "should-not-create-sale"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(Sale.objects.filter(notes="should-not-create-sale").exists())
+        self.assertFalse(Payment.objects.filter(notes="should-not-create-sale").exists())
 
     def test_phase_a_jio_fields_exist(self):
         """The schema additions for the Jio import pipeline are in place."""
@@ -552,6 +606,57 @@ class EntryNewTests(_ViewBase):
         self.assertEqual(result2.created_sales, 0)
         self.assertEqual(result2.skipped_duplicates, 3)
 
+    def test_phase_c_flush_transactions_command(self):
+        """`manage.py flush_transactions --yes` removes all Sale/Payment/
+        Visit/AuditLog rows while leaving Users and Retailers intact."""
+        from io import StringIO
+        from django.core.management import call_command
+        from core.models import AuditLog, Payment, Sale, Visit
+        from accounts.models import User as UserModel
+
+        # Populate some transactions to wipe.
+        Sale.objects.create(salesman=self.s1, retailer=self.retailer, amount=Decimal("1000"))
+        Payment.objects.create(
+            salesman=self.s1, retailer=self.retailer,
+            amount=Decimal("500"), mode=Payment.Mode.CASH,
+        )
+        self.assertGreater(Sale.objects.count(), 0)
+        self.assertGreater(Payment.objects.count(), 0)
+        self.assertGreater(Visit.objects.count(), 0)
+
+        users_before = UserModel.objects.count()
+        retailers_before = Retailer.objects.count()
+
+        out = StringIO()
+        call_command("flush_transactions", "--yes", stdout=out)
+
+        # Transactions gone.
+        self.assertEqual(Sale.objects.count(), 0)
+        self.assertEqual(Payment.objects.count(), 0)
+        self.assertEqual(Visit.objects.count(), 0)
+        self.assertEqual(AuditLog.objects.count(), 0)
+        # Users and Retailers untouched.
+        self.assertEqual(UserModel.objects.count(), users_before)
+        self.assertEqual(Retailer.objects.count(), retailers_before)
+        # Command output mentions what it did.
+        self.assertIn("Deleted", out.getvalue())
+
+    def test_phase_c_flush_transactions_when_already_empty(self):
+        """Running flush on an empty DB short-circuits cleanly."""
+        from io import StringIO
+        from django.core.management import call_command
+        from core.models import AuditLog, Payment, Sale, Visit
+
+        AuditLog.objects.all().delete()
+        # Visit has PROTECT on Sale/Payment, so delete those first
+        Sale.objects.all().delete()
+        Payment.objects.all().delete()
+        Visit.objects.all().delete()
+
+        out = StringIO()
+        call_command("flush_transactions", "--yes", stdout=out)
+        self.assertIn("already empty", out.getvalue())
+
     def test_phase_a_jio_partner_id_nullable_allows_many_blanks(self):
         """Existing manually-entered retailers without a jio_partner_id
         can coexist — unique=True with null=True doesn't reject multiple
@@ -592,17 +697,10 @@ class EntryNewTests(_ViewBase):
         self.assertIn('value="cash"', body)
         self.assertIn('value="upi"', body)
 
-    def test_entry_new_with_missing_kind_shows_error(self):
-        """A POST without a `kind` (tampered hidden input) must surface the
-        problem instead of silently re-rendering an empty form."""
-        self.login(self.s1)
-        resp = self.client.post(
-            f"/dukaan/{self.retailer.pk}/entry/",
-            {"amount": "100", "notes": "no-kind-test"},
-        )
-        self.assertEqual(resp.status_code, 200)
-        self.assertContains(resp, "Udhar ya Jama")
-        self.assertFalse(Sale.objects.filter(notes="no-kind-test").exists())
+    # `test_entry_new_with_missing_kind_shows_error` was removed in Phase C
+    # — the salesman flow no longer has a kind toggle, so a POST without
+    # `kind` is the normal Jama path. Equivalent coverage now lives in
+    # `EntryNewTests.test_udhar_post_does_not_create_a_sale`.
 
 
 class AdminDashboardTodayTests(_ViewBase):
@@ -1022,34 +1120,75 @@ class HtmxLiveSearchTests(_ViewBase):
 
 
 class EntryEditDeleteTests(_ViewBase):
+    """Phase C: salesmen can only edit/delete their own Payments (Jama).
+    Sales (Udhar) come from the Jio import and are read-only on the
+    salesman side — admin edits them via Django Admin if a correction is
+    needed."""
+
     def setUp(self):
+        self.payment = Payment.objects.create(
+            salesman=self.s1, retailer=self.retailer,
+            amount=Decimal("500"), mode=Payment.Mode.CASH,
+        )
+        # Keep a Sale in the fixture so we can assert it's untouchable from
+        # the salesman side.
         self.sale = Sale.objects.create(
-            salesman=self.s1, retailer=self.retailer, amount=Decimal("500"),
+            salesman=self.s1, retailer=self.retailer, amount=Decimal("1000"),
         )
 
-    def test_edit_within_24h_works(self):
+    def test_edit_jama_within_24h_works(self):
         self.login(self.s1)
         resp = self.client.post(
-            f"/entry/udhar/{self.sale.pk}/edit/",
-            {"amount": "750", "notes": "edited"},
+            f"/entry/jama/{self.payment.pk}/edit/",
+            {"amount": "750", "mode": "cash", "notes": "edited"},
         )
         self.assertEqual(resp.status_code, 302)
-        self.sale.refresh_from_db()
-        self.assertEqual(self.sale.amount, Decimal("750"))
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.amount, Decimal("750"))
 
-    def test_edit_other_salesmans_entry_returns_404(self):
+    def test_edit_other_salesmans_jama_returns_404(self):
         self.login(self.s2)
         resp = self.client.post(
-            f"/entry/udhar/{self.sale.pk}/edit/",
-            {"amount": "750"},
+            f"/entry/jama/{self.payment.pk}/edit/",
+            {"amount": "750", "mode": "cash"},
         )
         self.assertEqual(resp.status_code, 404)
 
-    def test_edit_after_24h_forbidden(self):
-        # Backdate the sale by tampering with created_at.
-        Sale.objects.filter(pk=self.sale.pk).update(
+    def test_edit_jama_after_24h_forbidden(self):
+        Payment.objects.filter(pk=self.payment.pk).update(
             created_at=timezone.now() - timedelta(hours=25)
         )
+        self.login(self.s1)
+        resp = self.client.post(
+            f"/entry/jama/{self.payment.pk}/edit/",
+            {"amount": "750", "mode": "cash"},
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_delete_jama_requires_reason(self):
+        self.login(self.s1)
+        resp = self.client.post(
+            f"/entry/jama/{self.payment.pk}/delete/",
+            {"reason": "   "},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.payment.refresh_from_db()
+        self.assertFalse(self.payment.is_deleted)
+
+    def test_delete_jama_with_reason_soft_deletes(self):
+        self.login(self.s1)
+        resp = self.client.post(
+            f"/entry/jama/{self.payment.pk}/delete/",
+            {"reason": "Wrong amount"},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.payment.refresh_from_db()
+        self.assertTrue(self.payment.is_deleted)
+        self.assertEqual(self.payment.deleted_reason, "Wrong amount")
+
+    def test_edit_udhar_forbidden_on_salesman_path(self):
+        """Hitting /entry/udhar/<pk>/edit/ with a salesman session returns
+        403 — Sales aren't salesman-editable in the new flow."""
         self.login(self.s1)
         resp = self.client.post(
             f"/entry/udhar/{self.sale.pk}/edit/",
@@ -1057,27 +1196,13 @@ class EntryEditDeleteTests(_ViewBase):
         )
         self.assertEqual(resp.status_code, 403)
 
-    def test_delete_requires_reason(self):
-        self.login(self.s1)
-        # Empty reason → form re-renders, not deleted
-        resp = self.client.post(
-            f"/entry/udhar/{self.sale.pk}/delete/",
-            {"reason": "   "},
-        )
-        self.assertEqual(resp.status_code, 200)
-        self.sale.refresh_from_db()
-        self.assertFalse(self.sale.is_deleted)
-
-    def test_delete_with_reason_soft_deletes(self):
+    def test_delete_udhar_forbidden_on_salesman_path(self):
         self.login(self.s1)
         resp = self.client.post(
             f"/entry/udhar/{self.sale.pk}/delete/",
-            {"reason": "Wrong amount"},
+            {"reason": "Trying"},
         )
-        self.assertEqual(resp.status_code, 302)
-        self.sale.refresh_from_db()
-        self.assertTrue(self.sale.is_deleted)
-        self.assertEqual(self.sale.deleted_reason, "Wrong amount")
+        self.assertEqual(resp.status_code, 403)
 
 
 class AajReportTests(_ViewBase):
