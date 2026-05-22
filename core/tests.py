@@ -605,6 +605,72 @@ class ReportsTests(_ViewBase):
         self.assertNotIn("<html", body)
         self.assertIn("Grand Total Outstanding", body)
 
+    # --- Phase 4 part 2 ---
+
+    def test_salesman_performance_admin_only(self):
+        self.login(self.s1)
+        resp = self.client.get("/dashboard/reports/salesman-performance/")
+        self.assertEqual(resp.status_code, 302)
+
+    def test_salesman_performance_renders(self):
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/reports/salesman-performance/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Salesman Performance")
+        # Both salesmen appear in the table.
+        self.assertContains(resp, self.s1.full_name)
+        self.assertContains(resp, self.s2.full_name)
+
+    def test_retailer_statement_picker(self):
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/reports/retailer-statement/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "pick one")
+
+    def test_retailer_statement_renders_for_retailer(self):
+        from datetime import date
+        self.login(self.admin)
+        resp = self.client.get(
+            f"/dashboard/reports/retailer-statement/?retailer={self.retailer.pk}"
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Closing Baaki")
+        self.assertContains(resp, "Running Baaki")
+        # Running baaki ends at 3,000 (5,000 sold - 2,000 paid).
+        self.assertContains(resp, "3,000")
+
+    # --- CSV exports ---
+
+    def test_daily_closing_csv(self):
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/reports/daily-closing/?format=csv")
+        self.assertEqual(resp["Content-Type"], "text/csv; charset=utf-8")
+        self.assertIn("attachment", resp["Content-Disposition"])
+        body = resp.content.decode("utf-8-sig")
+        self.assertIn("when,type,retailer,salesman,amount,notes", body)
+        self.assertIn("Mobile Shoppy", body)
+
+    def test_baaki_aging_csv(self):
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/reports/baaki-aging/?format=csv")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.content.decode("utf-8-sig")
+        self.assertIn("bucket,retailer,area,baaki,age_days", body)
+
+    def test_salesman_performance_csv(self):
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/reports/salesman-performance/?format=csv")
+        body = resp.content.decode("utf-8-sig")
+        self.assertIn("salesman,username,entries", body)
+
+    def test_retailer_statement_csv(self):
+        self.login(self.admin)
+        resp = self.client.get(
+            f"/dashboard/reports/retailer-statement/?retailer={self.retailer.pk}&format=csv"
+        )
+        body = resp.content.decode("utf-8-sig")
+        self.assertIn("when,type,amount,salesman,notes,running_baaki", body)
+
 
 class HtmxLiveSearchTests(_ViewBase):
     """HTMX requests return just the results partial, not the full page."""

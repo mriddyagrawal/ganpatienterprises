@@ -25,4 +25,6 @@ urlpatterns = [
     path("dashboard/reports/", reports.index, name="reports_index"),
     path("dashboard/reports/daily-closing/", reports.daily_closing, name="reports_daily_closing"),
     path("dashboard/reports/baaki-aging/", reports.baaki_aging, name="reports_baaki_aging"),
+    path("dashboard/reports/salesman-performance/", reports.salesman_performance, name="reports_salesman_performance"),
+    path("dashboard/reports/retailer-statement/", reports.retailer_statement, name="reports_retailer_statement"),
 ]

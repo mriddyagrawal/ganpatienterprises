@@ -10,18 +10,42 @@ salesmen, a few hundred retailers, low-thousands of entries) this is
 cheap and avoids the complexity of pre-aggregated tables.
 """
 
+import csv
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Optional
 
 from django.contrib.auth import get_user_model
 from django.db.models import Sum
-from django.shortcuts import render
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 
 from .dashboard import _parse_date, _parse_salesman, _day_range, _scope_filter
-from .models import Payment, Retailer, Sale
+from .models import Payment, Retailer, Sale, Visit
 from .permissions import admin_required
+
+
+# ---------------------------------------------------------------------------
+# CSV export helper
+# ---------------------------------------------------------------------------
+
+
+def _csv_response(filename: str, fieldnames: list[str], rows: list[dict]) -> HttpResponse:
+    """Stream a list of dicts as a CSV download."""
+    response = HttpResponse(content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    # BOM so Excel opens UTF-8 cleanly.
+    response.write("﻿")
+    writer = csv.DictWriter(response, fieldnames=fieldnames)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    return response
+
+
+def _wants_csv(request) -> bool:
+    return (request.GET.get("format") or "").lower() == "csv"
 
 
 User = get_user_model()
@@ -86,6 +110,24 @@ def daily_closing(request):
         key=lambda pair: pair[1].occurred_at,
         reverse=True,
     )
+
+    if _wants_csv(request):
+        rows = []
+        for kind, e in entries:
+            rows.append({
+                "when": e.occurred_at.strftime("%Y-%m-%d %H:%M"),
+                "type": "Udhar" if kind == "sale" else f"Jama ({e.get_mode_display()})",
+                "retailer": e.retailer.name,
+                "salesman": e.salesman.full_name or e.salesman.username,
+                "amount": str(e.amount),
+                "notes": e.notes,
+            })
+        suffix = f"-{salesman.username}" if salesman else ""
+        return _csv_response(
+            f"daily-closing-{date.isoformat()}{suffix}.csv",
+            ["when", "type", "retailer", "salesman", "amount", "notes"],
+            rows,
+        )
 
     all_salesmen = User.objects.filter(role=User.Role.SALESMAN, is_active=True).order_by("full_name", "username")
 
@@ -234,6 +276,24 @@ def baaki_aging(request):
         for label, _, _ in AGING_BUCKETS
     ]
 
+    if _wants_csv(request):
+        rows = []
+        for b in buckets_ordered:
+            for row in b["rows"]:
+                rows.append({
+                    "bucket": b["label"],
+                    "retailer": row["retailer"].name,
+                    "area": row["retailer"].area,
+                    "baaki": str(row["baaki"]),
+                    "age_days": row["age_days"],
+                })
+        suffix = f"-{salesman.username}" if salesman else ""
+        return _csv_response(
+            f"baaki-aging{suffix}-{now.date().isoformat()}.csv",
+            ["bucket", "retailer", "area", "baaki", "age_days"],
+            rows,
+        )
+
     all_salesmen = User.objects.filter(role=User.Role.SALESMAN, is_active=True).order_by("full_name", "username")
 
     ctx = {
@@ -251,3 +311,202 @@ def baaki_aging(request):
         else "dashboard/reports/baaki_aging.html"
     )
     return render(request, template, ctx)
+
+
+# ---------------------------------------------------------------------------
+# Salesman performance (admin only)
+# ---------------------------------------------------------------------------
+
+
+@admin_required
+def salesman_performance(request):
+    """Per-salesman activity over a date range.
+
+    Default range: last 30 days. Optional `?start=YYYY-MM-DD&end=YYYY-MM-DD`.
+    Each row: salesman, # entries (sales + payments), Udhar issued,
+    Cash collected, UPI collected, # visits, current Outstanding Baaki.
+    Sortable by any column client-side (small dataset; no server sort).
+    """
+    end = _parse_date(request.GET.get("end"))
+    start_param = request.GET.get("start")
+    start = _parse_date(start_param) if start_param else (end - timedelta(days=29))
+    if start > end:
+        start, end = end, start
+
+    tz = timezone.get_current_timezone()
+    start_dt = datetime.combine(start, datetime.min.time()).replace(tzinfo=tz)
+    end_dt = datetime.combine(end, datetime.min.time()).replace(tzinfo=tz) + timedelta(days=1)
+
+    rows = []
+    for sm in User.objects.filter(role=User.Role.SALESMAN).order_by("-is_active", "full_name", "username"):
+        sm_sales = Sale.objects.filter(
+            salesman=sm, is_deleted=False,
+            occurred_at__gte=start_dt, occurred_at__lt=end_dt,
+        )
+        sm_payments = Payment.objects.filter(
+            salesman=sm, is_deleted=False,
+            occurred_at__gte=start_dt, occurred_at__lt=end_dt,
+        )
+        sm_visits = Visit.objects.filter(
+            salesman=sm,
+            last_activity_at__gte=start_dt, last_activity_at__lt=end_dt,
+        ).count()
+        outstanding = (
+            Retailer.objects.with_baaki(salesman=sm).aggregate(s=Sum("baaki"))["s"] or Decimal("0")
+        )
+        rows.append({
+            "salesman": sm,
+            "entries": sm_sales.count() + sm_payments.count(),
+            "udhar": sm_sales.aggregate(s=Sum("amount"))["s"] or Decimal("0"),
+            "cash": sm_payments.filter(mode=Payment.Mode.CASH).aggregate(s=Sum("amount"))["s"] or Decimal("0"),
+            "upi": sm_payments.filter(mode=Payment.Mode.UPI).aggregate(s=Sum("amount"))["s"] or Decimal("0"),
+            "visits": sm_visits,
+            "outstanding": outstanding,
+        })
+
+    if _wants_csv(request):
+        csv_rows = [
+            {
+                "salesman": r["salesman"].full_name or r["salesman"].username,
+                "username": r["salesman"].username,
+                "entries": r["entries"],
+                "udhar_issued": str(r["udhar"]),
+                "cash_collected": str(r["cash"]),
+                "upi_collected": str(r["upi"]),
+                "visits": r["visits"],
+                "outstanding_baaki_now": str(r["outstanding"]),
+            }
+            for r in rows
+        ]
+        return _csv_response(
+            f"salesman-performance-{start.isoformat()}-to-{end.isoformat()}.csv",
+            ["salesman", "username", "entries", "udhar_issued", "cash_collected", "upi_collected", "visits", "outstanding_baaki_now"],
+            csv_rows,
+        )
+
+    return render(request, "dashboard/reports/salesman_performance.html", {
+        "active": "reports",
+        "report_name": "Salesman Performance",
+        "start": start, "start_iso": start.isoformat(),
+        "end": end, "end_iso": end.isoformat(),
+        "rows": rows,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Retailer statement (admin)
+# ---------------------------------------------------------------------------
+
+
+@admin_required
+def retailer_statement(request):
+    """A printable per-retailer ledger over a date range with running Baaki.
+
+    Admin path: any retailer, optionally scoped to one salesman.
+    The HTML has a print stylesheet — "Save as PDF" via browser is the
+    V1 export. CSV export available via ?format=csv.
+    """
+    retailer_pk = request.GET.get("retailer")
+    salesman = _parse_salesman(request.GET.get("salesman"))
+    end = _parse_date(request.GET.get("end"))
+    start_param = request.GET.get("start")
+    start = _parse_date(start_param) if start_param else (end - timedelta(days=29))
+    if start > end:
+        start, end = end, start
+
+    retailer = None
+    if retailer_pk:
+        retailer = get_object_or_404(Retailer, pk=retailer_pk)
+
+    all_retailers = Retailer.objects.filter(is_active=True).order_by("name")
+    all_salesmen = User.objects.filter(role=User.Role.SALESMAN, is_active=True).order_by("full_name", "username")
+
+    if retailer is None:
+        # Just show the picker — no statement to render yet.
+        return render(request, "dashboard/reports/retailer_statement.html", {
+            "active": "reports",
+            "report_name": "Retailer Statement",
+            "all_retailers": all_retailers,
+            "all_salesmen": all_salesmen,
+            "retailer": None,
+            "start": start, "start_iso": start.isoformat(),
+            "end": end, "end_iso": end.isoformat(),
+            "selected_salesman": salesman,
+            "rows": [],
+            "opening_baaki": Decimal("0"),
+            "closing_baaki": Decimal("0"),
+        })
+
+    tz = timezone.get_current_timezone()
+    start_dt = datetime.combine(start, datetime.min.time()).replace(tzinfo=tz)
+    end_dt = datetime.combine(end, datetime.min.time()).replace(tzinfo=tz) + timedelta(days=1)
+
+    # Opening Baaki — everything before `start`.
+    def _scope(qs):
+        return qs.filter(salesman=salesman) if salesman else qs
+
+    pre_sales = _scope(Sale.objects.filter(retailer=retailer, is_deleted=False, occurred_at__lt=start_dt))
+    pre_payments = _scope(Payment.objects.filter(retailer=retailer, is_deleted=False, occurred_at__lt=start_dt))
+    opening_baaki = (
+        (pre_sales.aggregate(s=Sum("amount"))["s"] or Decimal("0"))
+        - (pre_payments.aggregate(s=Sum("amount"))["s"] or Decimal("0"))
+    )
+
+    # In-range entries — chronological (oldest first) for running balance.
+    in_sales = _scope(Sale.objects.filter(
+        retailer=retailer, is_deleted=False,
+        occurred_at__gte=start_dt, occurred_at__lt=end_dt,
+    ).select_related("salesman"))
+    in_payments = _scope(Payment.objects.filter(
+        retailer=retailer, is_deleted=False,
+        occurred_at__gte=start_dt, occurred_at__lt=end_dt,
+    ).select_related("salesman"))
+
+    timeline = sorted(
+        [("sale", s) for s in in_sales] + [("payment", p) for p in in_payments],
+        key=lambda pair: pair[1].occurred_at,
+    )
+
+    running = opening_baaki
+    rows = []
+    for kind, e in timeline:
+        if kind == "sale":
+            running += e.amount
+        else:
+            running -= e.amount
+        rows.append({"kind": kind, "entry": e, "running": running})
+
+    closing_baaki = running
+
+    if _wants_csv(request):
+        csv_rows = [
+            {
+                "when": r["entry"].occurred_at.strftime("%Y-%m-%d %H:%M"),
+                "type": "Udhar" if r["kind"] == "sale" else f"Jama ({r['entry'].get_mode_display()})",
+                "amount": str(r["entry"].amount),
+                "salesman": r["entry"].salesman.full_name or r["entry"].salesman.username,
+                "notes": r["entry"].notes,
+                "running_baaki": str(r["running"]),
+            }
+            for r in rows
+        ]
+        suffix = f"-{salesman.username}" if salesman else ""
+        return _csv_response(
+            f"statement-{retailer.name.replace(' ', '_').lower()}-{start.isoformat()}-to-{end.isoformat()}{suffix}.csv",
+            ["when", "type", "amount", "salesman", "notes", "running_baaki"],
+            csv_rows,
+        )
+
+    return render(request, "dashboard/reports/retailer_statement.html", {
+        "active": "reports",
+        "report_name": "Retailer Statement",
+        "all_retailers": all_retailers,
+        "all_salesmen": all_salesmen,
+        "retailer": retailer,
+        "start": start, "start_iso": start.isoformat(),
+        "end": end, "end_iso": end.isoformat(),
+        "selected_salesman": salesman,
+        "rows": rows,
+        "opening_baaki": opening_baaki,
+        "closing_baaki": closing_baaki,
+    })

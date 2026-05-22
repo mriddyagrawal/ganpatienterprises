@@ -25,22 +25,22 @@
         <p class="text-sm text-slate-600">For any past date: total Udhar, total Jama by mode, per-salesman breakdown, every entry. Hand this to the accountant.</p>
     </a>
 
-    <div class="bg-slate-50 rounded-2xl border border-dashed border-slate-200 p-5 opacity-70">
+    <a href="{% url 'core:reports_salesman_performance' %}" class="bg-white rounded-2xl border border-slate-200 p-5 hover:border-red-300 hover:shadow-sm">
         <div class="flex items-center gap-3 mb-2">
-            <span class="w-10 h-10 rounded-lg bg-slate-100 text-slate-400 flex items-center justify-center text-xl">📊</span>
-            <h2 class="text-base font-bold text-slate-500">Salesman Performance</h2>
-            <span class="text-[10px] uppercase tracking-wide text-slate-400">coming next</span>
+            <span class="w-10 h-10 rounded-lg bg-slate-50 text-slate-600 flex items-center justify-center text-xl">📊</span>
+            <h2 class="text-base font-bold text-slate-900">Salesman Performance</h2>
         </div>
-        <p class="text-sm text-slate-500">Per-salesman stats over a date range — entries, Udhar issued, Jama collected by mode.</p>
-    </div>
+        <p class="text-sm text-slate-600">Per-salesman stats over a date range — entries, Udhar issued, Cash & UPI collected, visits, current outstanding Baaki.</p>
+    </a>
 
-    <div class="bg-slate-50 rounded-2xl border border-dashed border-slate-200 p-5 opacity-70">
+    <a href="{% url 'core:reports_retailer_statement' %}" class="bg-white rounded-2xl border border-slate-200 p-5 hover:border-red-300 hover:shadow-sm">
         <div class="flex items-center gap-3 mb-2">
-            <span class="w-10 h-10 rounded-lg bg-slate-100 text-slate-400 flex items-center justify-center text-xl">📄</span>
-            <h2 class="text-base font-bold text-slate-500">Retailer Statement</h2>
-            <span class="text-[10px] uppercase tracking-wide text-slate-400">coming next</span>
+            <span class="w-10 h-10 rounded-lg bg-slate-50 text-slate-600 flex items-center justify-center text-xl">📄</span>
+            <h2 class="text-base font-bold text-slate-900">Retailer Statement</h2>
         </div>
-        <p class="text-sm text-slate-500">Printable per-retailer ledger over a date range with running Baaki. Useful for shopkeepers disputing balances.</p>
-    </div>
+        <p class="text-sm text-slate-600">Printable per-retailer ledger over a date range with running Baaki. Useful for shopkeepers disputing balances.</p>
+    </a>
 </div>
+
+<p class="text-xs text-slate-500 mt-4">All reports export to CSV via the "Download CSV" button on each report.</p>
 {% endblock %}

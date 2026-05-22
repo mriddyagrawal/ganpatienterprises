@@ -1,0 +1,65 @@
+{% extends "dashboard/_base.html" %}
+{% load humanize %}
+
+{% block title %}Salesman Performance · Reports · Ganpati Owner{% endblock %}
+
+{% block content %}
+<div class="mb-4 flex items-center justify-between">
+    <div>
+        <a href="{% url 'core:reports_index' %}" class="text-sm text-slate-500 hover:text-slate-700">← Reports</a>
+        <h1 class="text-2xl font-bold text-slate-900 mt-1">Salesman Performance</h1>
+        <p class="text-sm text-slate-600">Per-salesman activity over a date range.</p>
+    </div>
+    <a href="?start={{ start_iso }}&end={{ end_iso }}&format=csv"
+       class="text-sm bg-slate-900 hover:bg-slate-800 text-white font-semibold px-3 py-1.5 rounded-md">⬇ Download CSV</a>
+</div>
+
+<form method="get" class="bg-white rounded-xl border border-slate-200 p-3 mb-5 flex flex-wrap items-center gap-3 text-sm">
+    <span class="text-slate-500 text-xs uppercase tracking-wide">From</span>
+    <input type="date" name="start" value="{{ start_iso }}" class="border border-slate-300 rounded-md px-2 py-1.5">
+    <span class="text-slate-500 text-xs uppercase tracking-wide">To</span>
+    <input type="date" name="end" value="{{ end_iso }}" class="border border-slate-300 rounded-md px-2 py-1.5">
+    <button type="submit" class="bg-slate-900 hover:bg-slate-800 text-white font-semibold px-3 py-1.5 rounded-md">Apply</button>
+</form>
+
+<div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
+            <tr>
+                <th class="text-left px-4 py-2 font-medium">Salesman</th>
+                <th class="text-right px-4 py-2 font-medium">Entries</th>
+                <th class="text-right px-4 py-2 font-medium">Udhar Issued</th>
+                <th class="text-right px-4 py-2 font-medium">Cash Collected</th>
+                <th class="text-right px-4 py-2 font-medium">UPI Collected</th>
+                <th class="text-right px-4 py-2 font-medium hidden sm:table-cell">Visits</th>
+                <th class="text-right px-4 py-2 font-medium">Outstanding <span class="text-[10px] text-slate-400 normal-case font-normal">(now)</span></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in rows %}
+            <tr class="border-t border-slate-100 {% if not r.salesman.is_active %}opacity-50{% endif %}">
+                <td class="px-4 py-2.5">
+                    <a href="{% url 'core:dashboard_salesman_detail' r.salesman.pk %}"
+                       class="font-medium text-slate-900 hover:text-red-600">{{ r.salesman.full_name|default:r.salesman.username }}</a>
+                    {% if not r.salesman.is_active %}<span class="text-xs text-slate-500"> · inactive</span>{% endif %}
+                </td>
+                <td class="px-4 py-2.5 text-right text-slate-600">{{ r.entries }}</td>
+                <td class="px-4 py-2.5 text-right text-red-500 font-semibold">₹{{ r.udhar|floatformat:0|intcomma }}</td>
+                <td class="px-4 py-2.5 text-right text-green-600 font-semibold">₹{{ r.cash|floatformat:0|intcomma }}</td>
+                <td class="px-4 py-2.5 text-right text-green-600 font-semibold">₹{{ r.upi|floatformat:0|intcomma }}</td>
+                <td class="px-4 py-2.5 text-right text-slate-600 hidden sm:table-cell">{{ r.visits }}</td>
+                <td class="px-4 py-2.5 text-right font-bold {% if r.outstanding > 0 %}text-red-500{% elif r.outstanding < 0 %}text-green-600{% else %}text-slate-400{% endif %}">
+                    {% if r.outstanding < 0 %}−{% endif %}₹{{ r.outstanding|floatformat:0|intcomma|cut:"-" }}
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="7" class="px-4 py-10 text-center text-slate-400 text-sm">Koi salesman nahi.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="text-xs text-slate-500 mt-2">
+    Range: {{ start|date:"d M Y" }} → {{ end|date:"d M Y" }} · "Outstanding (now)" reflects current Baaki, not the period's.
+</div>
+{% endblock %}

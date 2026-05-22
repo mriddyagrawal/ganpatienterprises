@@ -1,0 +1,121 @@
+{% extends "dashboard/_base.html" %}
+{% load humanize %}
+
+{% block title %}Retailer Statement · Reports · Ganpati Owner{% endblock %}
+
+{% block content %}
+<style>
+@media print {
+    nav, form, .no-print { display: none !important; }
+    body { background: white !important; }
+    main { max-width: 100% !important; padding: 0 !important; }
+    .bg-white, .border, .rounded-2xl { border: none !important; box-shadow: none !important; }
+}
+</style>
+
+<div class="mb-4 flex items-center justify-between no-print">
+    <div>
+        <a href="{% url 'core:reports_index' %}" class="text-sm text-slate-500 hover:text-slate-700">← Reports</a>
+        <h1 class="text-2xl font-bold text-slate-900 mt-1">Retailer Statement</h1>
+        <p class="text-sm text-slate-600">Per-retailer ledger with running Baaki, printable.</p>
+    </div>
+    {% if retailer %}
+    <div class="flex gap-2">
+        <button onclick="window.print()" class="text-sm bg-slate-900 hover:bg-slate-800 text-white font-semibold px-3 py-1.5 rounded-md">🖨 Print / Save as PDF</button>
+        <a href="?retailer={{ retailer.pk }}&start={{ start_iso }}&end={{ end_iso }}{% if selected_salesman %}&salesman={{ selected_salesman.pk }}{% endif %}&format=csv"
+           class="text-sm bg-slate-100 hover:bg-slate-200 text-slate-900 font-semibold px-3 py-1.5 rounded-md">⬇ CSV</a>
+    </div>
+    {% endif %}
+</div>
+
+<form method="get" class="bg-white rounded-xl border border-slate-200 p-3 mb-5 flex flex-wrap items-center gap-3 text-sm no-print">
+    <span class="text-slate-500 text-xs uppercase tracking-wide">Dukaan</span>
+    <select name="retailer" class="border border-slate-300 rounded-md px-2 py-1.5 min-w-[180px]" required>
+        <option value="" {% if not retailer %}selected{% endif %}>— pick one —</option>
+        {% for r in all_retailers %}
+        <option value="{{ r.pk }}" {% if retailer and retailer.pk == r.pk %}selected{% endif %}>{{ r.name }}</option>
+        {% endfor %}
+    </select>
+    <span class="text-slate-500 text-xs uppercase tracking-wide">Salesman</span>
+    <select name="salesman" class="border border-slate-300 rounded-md px-2 py-1.5 min-w-[160px]">
+        <option value="all" {% if not selected_salesman %}selected{% endif %}>All salesmen</option>
+        {% for sm in all_salesmen %}
+        <option value="{{ sm.pk }}" {% if selected_salesman and selected_salesman.pk == sm.pk %}selected{% endif %}>{{ sm.full_name|default:sm.username }}</option>
+        {% endfor %}
+    </select>
+    <span class="text-slate-500 text-xs uppercase tracking-wide">From</span>
+    <input type="date" name="start" value="{{ start_iso }}" class="border border-slate-300 rounded-md px-2 py-1.5">
+    <span class="text-slate-500 text-xs uppercase tracking-wide">To</span>
+    <input type="date" name="end" value="{{ end_iso }}" class="border border-slate-300 rounded-md px-2 py-1.5">
+    <button type="submit" class="bg-slate-900 hover:bg-slate-800 text-white font-semibold px-3 py-1.5 rounded-md">Apply</button>
+</form>
+
+{% if retailer %}
+<div class="bg-white rounded-2xl border border-slate-200 p-6 mb-5">
+    <div class="flex items-start justify-between mb-4 pb-3 border-b border-slate-200">
+        <div>
+            <h2 class="text-xl font-bold text-slate-900">{{ retailer.name }}</h2>
+            {% if retailer.owner_name %}<div class="text-sm text-slate-600">{{ retailer.owner_name }}</div>{% endif %}
+            <div class="text-xs text-slate-500">
+                {% if retailer.area %}{{ retailer.area }}{% endif %}
+                {% if retailer.phone %} · 📞 {{ retailer.phone }}{% endif %}
+            </div>
+            <div class="text-xs text-slate-500 mt-1">
+                Statement {{ start|date:"d M Y" }} → {{ end|date:"d M Y" }}
+                {% if selected_salesman %} · {{ selected_salesman.full_name|default:selected_salesman.username }} only{% endif %}
+            </div>
+        </div>
+        <div class="text-right">
+            <div class="text-[10px] uppercase tracking-wide text-slate-400">Closing Baaki</div>
+            <div class="text-3xl font-bold {% if closing_baaki > 0 %}text-red-500{% elif closing_baaki < 0 %}text-green-600{% else %}text-slate-400{% endif %}">
+                {% if closing_baaki < 0 %}−{% endif %}₹{{ closing_baaki|floatformat:0|intcomma|cut:"-" }}
+            </div>
+        </div>
+    </div>
+
+    <table class="w-full text-sm">
+        <thead class="text-slate-500 text-xs uppercase tracking-wide">
+            <tr>
+                <th class="text-left py-2 font-medium">When</th>
+                <th class="text-left py-2 font-medium">Type</th>
+                <th class="text-left py-2 font-medium">Salesman</th>
+                <th class="text-right py-2 font-medium">Amount</th>
+                <th class="text-right py-2 font-medium">Running Baaki</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr class="border-t border-slate-200 bg-slate-50">
+                <td class="py-2 text-xs italic text-slate-500" colspan="3">Opening balance ({{ start|date:"d M Y" }})</td>
+                <td></td>
+                <td class="py-2 text-right font-bold {% if opening_baaki > 0 %}text-red-500{% elif opening_baaki < 0 %}text-green-600{% else %}text-slate-400{% endif %}">
+                    {% if opening_baaki < 0 %}−{% endif %}₹{{ opening_baaki|floatformat:0|intcomma|cut:"-" }}
+                </td>
+            </tr>
+            {% for row in rows %}
+            <tr class="border-t border-slate-100">
+                <td class="py-2 text-slate-700 whitespace-nowrap">{{ row.entry.occurred_at|date:"d M Y, h:i A" }}</td>
+                <td class="py-2">
+                    {% if row.kind == "sale" %}<span class="text-red-500 font-medium">↗ Udhar</span>
+                    {% else %}<span class="text-green-600 font-medium">↘ Jama ({{ row.entry.get_mode_display }})</span>{% endif %}
+                    {% if row.entry.notes %}<div class="text-xs text-slate-500 italic">{{ row.entry.notes }}</div>{% endif %}
+                </td>
+                <td class="py-2 text-slate-600">{{ row.entry.salesman.full_name|default:row.entry.salesman.username }}</td>
+                <td class="py-2 text-right font-semibold {% if row.kind == 'sale' %}text-red-500{% else %}text-green-600{% endif %}">
+                    {% if row.kind == 'payment' %}−{% endif %}₹{{ row.entry.amount|floatformat:0|intcomma }}
+                </td>
+                <td class="py-2 text-right font-bold {% if row.running > 0 %}text-red-500{% elif row.running < 0 %}text-green-600{% else %}text-slate-400{% endif %}">
+                    {% if row.running < 0 %}−{% endif %}₹{{ row.running|floatformat:0|intcomma|cut:"-" }}
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="py-10 text-center text-slate-400 text-sm italic">Is range mein koi activity nahi.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="bg-white rounded-2xl border border-slate-200 p-10 text-center text-sm text-slate-500">
+    Ek dukaan select karein.
+</div>
+{% endif %}
+{% endblock %}

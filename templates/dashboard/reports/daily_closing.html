@@ -26,6 +26,8 @@
         </option>
         {% endfor %}
     </select>
+    <a href="?date={{ date_iso }}{% if selected_salesman %}&salesman={{ selected_salesman.pk }}{% endif %}&format=csv"
+       class="ml-auto text-sm bg-slate-900 hover:bg-slate-800 text-white font-semibold px-3 py-1.5 rounded-md">⬇ CSV</a>
 </form>
 
 <div id="dc-main">
