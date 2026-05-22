@@ -15,7 +15,8 @@ This is the source-of-truth document for how the web app gets built. Business co
 | **Auth** | Django session auth, username + password. OTP login is in `futureplans.md`. |
 | **Ledger model** | Pure two-direction: every sale is **Udhar** (debit on retailer), every payment is **Jama** (credit). The running balance is **Baaki**. On the `jio-import` branch, Udhar is sourced from the Jio CSV import; Jama is salesman-entered. |
 | **Udhar source (jio-import branch)** | Imported from Jio's distributor portal (jioconnect → DSM Reports → Order Details) via `/dashboard/import/`. Salesmen no longer create Sales manually; admins can create Sales from Django Admin for the rare non-Jio case. Each imported Sale stores `jio_order_id` (idempotency), `face_value` (Jio's delivered credit), and `amount` = `face_value / 1.03` (the 3% retailer incentive — see [futureplans.md #9](futureplans.md)). |
-| **Retailer assignment (jio-import branch)** | Each `Retailer` has a single `assigned_salesman` FK. Auto-set on first import (from the row's FOS); admin reassigns via Django Admin. **The salesman's Dukaan list and Aaj report show only their assigned retailers** — strict filter, no clutter. Cross-coverage (a salesman recording Jama at another's retailer) is possible via the Entry Picker which is intentionally not filtered. |
+| **Retailer assignment (jio-import branch)** | Each `Retailer` has a single `assigned_salesman` FK. Auto-set on first import (from the row's FOS); admin reassigns via Django Admin. **Salesmen can only see / act on their assigned retailers** — Dukaan list, Aaj report, entry picker, retailer detail, and Naya Entry are all filtered. Direct URL access to an unassigned retailer returns 404. Cross-coverage (one salesman collecting cash for another) is **deliberately disallowed in V1** because the business model puts salesmen in distinct territories; see [futureplans.md #10](futureplans.md) for the workflow if requirements change. |
+| **Imported Sales skip Visit attach** | Salesman-side `Payment.save()` still auto-attaches to a `Visit` (15-min activity window per §3.5). But Jio's AUTO refills aren't physical visits, so the importer passes `skip_visit_attach=True` and the imported Sale's `visit_id` stays NULL. Keeps "Aaj N dukaan visit kiye" honest — counts what the salesman actually walked into, not what Jio's backend did overnight. |
 | **No memo handling** in V1 — salesman just opens app and logs to any retailer |
 | **`Visit` entity, auto-grouped** — every Sale and Payment is attached to a Visit. Visits are created automatically using a 15-minute activity window (see §3). The salesman never manually "starts" or "ends" a visit. |
 | **No recharge SKUs.** The business sells rupee-value recharge credits, not specific Jio plans. The data model tracks amounts only. |
@@ -287,7 +288,7 @@ Tasks:
 - Infinite scroll or "Load more"
 
 **S4. Naya Entry flow (Jama-only on `jio-import`)**
-- Step 1 (skip if entered from retailer context): pick retailer (searchable list — not filtered by assignment so coverage scenarios still work)
+- Step 1 (skip if entered from retailer context): pick retailer (searchable list — **filtered to retailers assigned to this salesman**; cross-coverage isn't supported, see futureplans #10)
 - Step 2: amount entry — large numeric keypad-friendly input, ₹ symbol prefix
 - Step 3: mode — two buttons
   - **Cash**
@@ -296,7 +297,7 @@ Tasks:
 - Step 5: save — `₹1 lakh` sanity confirm fires for unusually large amounts
 - After save: return to retailer detail, see the new row at the top
 
-> **Legacy.** On `legacy-full-flow` this screen has the Udhar / Jama toggle. That whole branch of the form is removed on `jio-import` because Udhar now comes from the import pipeline.
+> **Legacy.** On `legacy-full-flow` this screen has the Udhar / Jama toggle, and the retailer picker is unfiltered. Both behaviors are removed on `jio-import` — Udhar now comes from the import pipeline, and salesmen are locked to their assigned retailers.
 
 **S5. Aaj tab (today's report — salesman view)**
 

@@ -197,3 +197,30 @@ The rate is currently a Python constant (`RETAILER_DISCOUNT = Decimal("1.03")`) 
 - The owner adopts a different incentive rate for new sales going forward.
 - A specific retailer negotiates a non-standard rate.
 - Quarterly / promotional incentive variations become routine.
+
+---
+
+## 10. Cross-Coverage Jama Attribution
+
+**The idea.** The `jio-import` branch enforces strict assignment: a salesman can only see and record Jama at retailers where `assigned_salesman = themselves`. Direct URLs to other salesmen's retailers return 404; the entry picker is filtered to their assigned set. This matches the current business reality — salesmen work distinct territories and don't physically cross paths.
+
+If the business model ever changes (one salesman covers another's route for a day, two salesmen split a busy market, etc.), the system needs a rule for how cross-collected Jama gets attributed.
+
+**Three plausible rules (decide when the need arises):**
+1. **Collector keeps credit, owner sees both.** Salesman B records Jama at A's retailer → `Sale.salesman = B` (B collected the cash). A's Baaki for that retailer doesn't move; the admin's "All salesmen" view shows the activity. This is what the codebase did briefly before strict mode landed in Phase C followup.
+2. **Auto-attribute to the assigned owner.** B's Jama at A's retailer → `Sale.salesman` overridden to A (the relationship owner). B's day summary still credits the collection (so B knows they did work) but the Baaki movement lands on A's books. Cleanest for accounting; murkier on "who actually held the cash."
+3. **Admin review queue.** B's Jama at A's retailer creates a "misattribution flag" the admin resolves manually. Heaviest workflow; safest for audit.
+
+**What the implementation would touch.**
+- The strict-mode `get_object_or_404` filter on `entry_new` / `retailer_detail` / `entry_new_picker` would relax. The picker would need a "show retailers outside my assignments" toggle so the default UI stays clean.
+- A new `SaleAttribution` log if rule (3) is picked.
+- Reports would need a "cross-coverage" view dimension.
+
+**Why deferred.**
+- The owner explicitly said the current model has salesmen in different areas — coverage doesn't happen.
+- Picking the wrong rule and then changing it later means re-attributing historical entries, which is painful.
+
+**Triggers to revisit.**
+- A salesman is sick / on leave and the owner needs to send another to cover.
+- The business adds a salesman whose territory deliberately overlaps with an existing one.
+- The owner sees a real-life case of B collecting cash at A's retailer and asks "where did that show up?"

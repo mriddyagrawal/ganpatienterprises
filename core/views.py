@@ -15,7 +15,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 
 from .audit import log_change, snapshot
-from .forms import DeleteEntryForm, PaymentForm, SaleForm
+from .forms import DeleteEntryForm, PaymentForm
 from .models import AuditLog, Payment, Retailer, Sale, Visit
 from .permissions import salesman_required
 
@@ -42,14 +42,6 @@ def _can_salesman_edit(entry, user) -> bool:
 def _attach_editable_flag(entries, user):
     for e in entries:
         e.is_editable = _can_salesman_edit(e, user)
-
-
-def _entry_model_for_kind(kind: str):
-    if kind == "udhar":
-        return Sale, SaleForm
-    if kind == "jama":
-        return Payment, PaymentForm
-    return None, None
 
 
 # ---------------------------------------------------------------------------
@@ -107,7 +99,13 @@ def dukaan(request):
 @salesman_required
 def retailer_detail(request, pk):
     user = request.user
-    retailer = get_object_or_404(Retailer, pk=pk, is_active=True)
+    # Strict mode (Phase C followup): salesmen can only open retailers
+    # assigned to them. Cross-coverage is captured as a future-plan; see
+    # `futureplans.md` #10. The 404 (not 403) is intentional — to a
+    # non-assigned salesman this retailer effectively doesn't exist.
+    retailer = get_object_or_404(
+        Retailer, pk=pk, is_active=True, assigned_salesman=user
+    )
 
     sales = list(retailer.sales.filter(salesman=user).order_by("-occurred_at"))
     payments = list(retailer.payments.filter(salesman=user).order_by("-occurred_at"))
@@ -140,11 +138,13 @@ def retailer_detail(request, pk):
 def entry_new_picker(request):
     """First step of Naya Entry when no retailer is in context yet.
 
-    Same HTMX-partial pattern as :func:`dukaan` for the live search.
+    Filtered to retailers assigned to this salesman. Cross-coverage at
+    someone else's retailer isn't supported in V1 — see futureplans.md
+    #10 for the workflow if/when the business requires it.
     """
     user = request.user
     qs = (
-        Retailer.objects.filter(is_active=True)
+        Retailer.objects.filter(is_active=True, assigned_salesman=user)
         .with_baaki(salesman=user)
         .order_by("name")
     )
@@ -171,9 +171,14 @@ def entry_new(request, pk):
     via the Jio auto-refill import (see /dashboard/import/). Admins can
     still create Sales manually via Django Admin if needed for the rare
     non-Jio case.
+
+    Strict mode (Phase C followup): the retailer must be assigned to
+    the logged-in salesman. Cross-coverage is in `futureplans.md` #10.
     """
     user = request.user
-    retailer = get_object_or_404(Retailer, pk=pk, is_active=True)
+    retailer = get_object_or_404(
+        Retailer, pk=pk, is_active=True, assigned_salesman=user
+    )
 
     if request.method == "POST":
         payment_form = PaymentForm(request.POST)

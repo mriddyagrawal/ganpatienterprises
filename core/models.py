@@ -20,6 +20,14 @@ from django.utils import timezone
 VISIT_GROUPING_WINDOW = timedelta(minutes=15)
 
 
+def _active_salesman_filter():
+    """Limit-choices callable for FKs that should only point at *active*
+    salesman accounts. Lazy-imports `accounts.models.User` to dodge the
+    circular import between `core` and `accounts`."""
+    from accounts.models import User
+    return {"role": User.Role.SALESMAN, "is_active": True}
+
+
 # ---------------------------------------------------------------------------
 # Retailer (the dukaan)
 # ---------------------------------------------------------------------------
@@ -91,7 +99,12 @@ class Retailer(models.Model):
         on_delete=models.SET_NULL,
         null=True, blank=True,
         related_name="assigned_retailers",
-        limit_choices_to={"role": "salesman"},
+        # Named callable (lambdas can't be serialized into migrations).
+        # Uses the Role enum value as source of truth, and restricts the
+        # dropdown to *active* salesmen (auto-created `fos-<id>` users
+        # start `is_active=False` and shouldn't be pickable until admin
+        # enables them).
+        limit_choices_to=_active_salesman_filter,
         help_text="Salesman this retailer is assigned to. Drives the Dukaan list filter.",
     )
 
@@ -194,10 +207,16 @@ _AMOUNT_VALIDATORS = [MinValueValidator(Decimal("0.01"))]
 class _LedgerEntry(models.Model):
     """Common fields and behavior for Sale and Payment."""
 
+    # Nullable because Jio-imported Sales bypass `Visit.attach`: AUTO
+    # refills aren't physical visits — they're Jio backend transactions.
+    # Salesman-side Payments (and any admin-created Sale that goes
+    # through the normal save path) still auto-attach to a Visit and
+    # so always have this set.
     visit = models.ForeignKey(
         Visit,
         on_delete=models.PROTECT,
         related_name="%(class)ss",
+        null=True, blank=True,
     )
     retailer = models.ForeignKey(
         Retailer,
@@ -233,11 +252,21 @@ class _LedgerEntry(models.Model):
             )
 
     @transaction.atomic
-    def save(self, *args, **kwargs):
-        # Auto-attach to a Visit on first save when one isn't explicitly set.
-        # Wrapped in a transaction so an empty Visit can't be orphaned if the
-        # subsequent insert fails a DB constraint.
-        if self.visit_id is None and self.salesman_id and self.retailer_id:
+    def save(self, *args, skip_visit_attach=False, **kwargs):
+        """Auto-attach to a Visit on first save when one isn't explicitly
+        set. Pass ``skip_visit_attach=True`` from the Jio importer so
+        bulk-imported Sales don't inflate the Visit table with phantom
+        "visits" the salesman never physically made.
+
+        Wrapped in a transaction so an empty Visit can't be orphaned if
+        the subsequent insert fails a DB constraint.
+        """
+        if (
+            not skip_visit_attach
+            and self.visit_id is None
+            and self.salesman_id
+            and self.retailer_id
+        ):
             occurred_at = self.occurred_at or timezone.now()
             self.visit = Visit.attach(
                 salesman=self.salesman,

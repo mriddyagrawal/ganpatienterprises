@@ -317,17 +317,62 @@ class RetailerDetailTests(_ViewBase):
         Sale.objects.create(salesman=self.s2, retailer=self.retailer, amount=Decimal("2000"), notes="s2-note")
 
     def test_timeline_shows_only_logged_in_salesmans_entries(self):
+        """`retailer` is assigned to s1 in `_ViewBase.setUpTestData`. When s1
+        opens it, his own notes show; s2's notes don't."""
         self.login(self.s1)
         resp = self.client.get(f"/dukaan/{self.retailer.pk}/")
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "s1-note")
         self.assertNotContains(resp, "s2-note")
 
-    def test_baaki_card_is_scoped(self):
+    def test_baaki_card_is_scoped_when_retailer_reassigned(self):
+        """When the retailer is reassigned to s2, s2 sees only s2's slice
+        of Baaki on the detail page — s1's entries are excluded."""
+        self.retailer.assigned_salesman = self.s2
+        self.retailer.save(update_fields=["assigned_salesman"])
         self.login(self.s2)
         resp = self.client.get(f"/dukaan/{self.retailer.pk}/")
+        self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "2,000")
         self.assertNotContains(resp, "1,000")
+
+    def test_unassigned_salesman_gets_404_on_retailer_detail(self):
+        """Strict mode (Phase C followup): a salesman who isn't the
+        retailer's `assigned_salesman` gets a 404 when hitting the URL
+        directly. Cross-coverage is captured in futureplans #10."""
+        # `retailer` is assigned to s1 (per _ViewBase); s2 is not.
+        self.login(self.s2)
+        resp = self.client.get(f"/dukaan/{self.retailer.pk}/")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_unassigned_salesman_gets_404_on_entry_new(self):
+        """Same strict mode applied to the Jama entry form."""
+        self.login(self.s2)
+        resp = self.client.post(
+            f"/dukaan/{self.retailer.pk}/entry/",
+            {"amount": "100", "mode": "cash", "notes": "should-not-create"},
+        )
+        self.assertEqual(resp.status_code, 404)
+        self.assertFalse(Payment.objects.filter(notes="should-not-create").exists())
+
+    def test_entry_picker_filtered_to_assigned_retailers(self):
+        """The Naya Entry retailer picker only lists retailers assigned
+        to the logged-in salesman."""
+        self.other_retailer.assigned_salesman = self.s2
+        self.other_retailer.save(update_fields=["assigned_salesman"])
+        # Now: `retailer` is s1's, `other_retailer` is s2's.
+
+        self.login(self.s1)
+        resp = self.client.get("/entry/new/")
+        body = resp.content.decode()
+        self.assertIn("Mobile Shoppy", body)
+        self.assertNotIn("Sharma Mobile", body)
+
+        self.login(self.s2)
+        resp = self.client.get("/entry/new/")
+        body = resp.content.decode()
+        self.assertNotIn("Mobile Shoppy", body)
+        self.assertIn("Sharma Mobile", body)
 
 
 class EntryNewTests(_ViewBase):
@@ -587,6 +632,28 @@ class EntryNewTests(_ViewBase):
         s = Sale.objects.get(jio_order_id="TST-ORDER-001")
         self.assertEqual(s.amount, Decimal("3000.00"))
         self.assertEqual(s.face_value, Decimal("3090.000"))
+
+    def test_phase_b_apply_does_not_create_visit_rows(self):
+        """AUTO refills aren't physical visits — the importer must skip
+        `Visit.attach`, otherwise the salesman's "Aaj N dukaan visit
+        kiye" counter and the admin's visit stats inflate with phantom
+        rows the salesman never made."""
+        from core.jio_import import apply_plan, plan_import, validate_rows, parse_file_content
+        from core.models import Visit
+        from pathlib import Path
+
+        visits_before = Visit.objects.count()
+        raw = parse_file_content(
+            (Path(__file__).parent / "tests_fixtures" / "jio_sample.tsv").read_bytes()
+        )
+        rows, _ = validate_rows(raw)
+        result = apply_plan(plan_import(rows), self.admin)
+        self.assertEqual(result.created_sales, 3)
+        self.assertEqual(Visit.objects.count(), visits_before)  # nothing added
+        # And the Sales themselves have visit=None.
+        from core.models import Sale
+        for sale in Sale.objects.filter(jio_order_id__startswith="TST-ORDER-"):
+            self.assertIsNone(sale.visit_id, f"Imported Sale {sale.jio_order_id} has a Visit")
 
     def test_phase_b_apply_is_idempotent(self):
         """Re-running the same import is safe — second run creates 0 Sales."""

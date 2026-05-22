@@ -396,7 +396,7 @@ def apply_plan(plan: ImportPlan, actor) -> ImportResult:
     for r in plan.rows:
         if r.order_id in existing_order_ids:
             continue
-        sale = Sale.objects.create(
+        sale = Sale(
             retailer=partner_retailer_map[r.partner_id],
             salesman=fos_user_map[r.fos_id],
             amount=r.amount,
@@ -404,6 +404,9 @@ def apply_plan(plan: ImportPlan, actor) -> ImportResult:
             occurred_at=r.occurred_at,
             jio_order_id=r.order_id,
         )
+        # AUTO refills aren't physical visits — skip the visit_attach side
+        # effect so the Visit table only contains real salesman activity.
+        sale.save(skip_visit_attach=True)
         log_change(actor=actor, instance=sale, action=AuditLog.Action.CREATE)
         result.created_sales += 1
         result.total_amount += r.amount

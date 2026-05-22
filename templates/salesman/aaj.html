@@ -10,11 +10,13 @@
         <h1 class="text-xl font-bold text-slate-900">{{ today|date:"d M Y, l" }}</h1>
     </div>
 
-    {# Aaj ka Udhar #}
+    {# Aaj ka Udhar — these come from Jio's auto-refill import, not from
+       anything the salesman did. Label makes that clear so the salesman
+       doesn't think the day's Udhar is their action. #}
     <div class="bg-white rounded-2xl border border-slate-200 p-4">
-        <div class="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Aaj ka Udhar</div>
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Aaj Jio se aaya</div>
         <div class="text-3xl font-bold text-red-500">₹{{ udhar_total|floatformat:0|intcomma }}</div>
-        <div class="text-xs text-slate-500 mt-0.5">{{ udhar_count }} entries</div>
+        <div class="text-xs text-slate-500 mt-0.5">{{ udhar_count }} auto-refill orders</div>
     </div>
 
     {# Aaj ka Jama with channel breakdown #}
@@ -35,7 +37,7 @@
     {# Today's Udhar — detail #}
     {% if today_sales %}
     <div>
-        <h2 class="text-sm font-semibold text-slate-700 mb-2 px-1">Aaj ka Udhar — Detail</h2>
+        <h2 class="text-sm font-semibold text-slate-700 mb-2 px-1">Aaj ke Refill — Detail</h2>
         <div class="space-y-2">
             {% for s in today_sales %}
             <a href="{% url 'core:retailer_detail' s.retailer_id %}"
