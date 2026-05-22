@@ -90,7 +90,7 @@
                 <label class="flex items-center justify-center gap-2 border-2 border-slate-200 has-[:checked]:border-green-500 has-[:checked]:bg-green-50 rounded-lg py-3 cursor-pointer font-semibold text-slate-700 has-[:checked]:text-green-700">
                     <span class="sr-only">{{ radio.choice_label }}</span>
                     {{ radio.tag }}
-                    <span>{% if radio.choice_value == 'cash' %}💵 Cash{% else %}📱 UPI{% endif %}</span>
+                    <span>{% if radio.choice_value == 'cash' %}💵 Cash{% elif radio.choice_value == 'upi' %}📱 UPI{% endif %}</span>
                 </label>
                 {% endfor %}
             </div>

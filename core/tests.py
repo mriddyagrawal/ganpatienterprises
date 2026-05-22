@@ -328,6 +328,17 @@ class EntryNewTests(_ViewBase):
         self.assertEqual(resp.status_code, 200)  # re-renders form with errors
         self.assertFalse(Payment.objects.filter(notes="no-mode").exists())
 
+    def test_payment_form_mode_has_no_blank_choice(self):
+        """Regression: Django adds a blank ('', '---------') row to a
+        required CharField+choices, which rendered as a phantom third
+        radio mislabeled "UPI" in the salesman Jama form. The form
+        constructor now strips it."""
+        from .forms import PaymentForm
+        choices = list(PaymentForm().fields["mode"].choices)
+        self.assertEqual(len(choices), 2)
+        self.assertIn(("cash", "Cash"), choices)
+        self.assertIn(("upi", "UPI"), choices)
+
     def test_entry_new_with_missing_kind_shows_error(self):
         """A POST without a `kind` (tampered hidden input) must surface the
         problem instead of silently re-rendering an empty form."""

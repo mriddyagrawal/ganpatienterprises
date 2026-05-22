@@ -68,6 +68,16 @@ class PaymentForm(forms.ModelForm):
             }),
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Django's ModelForm prepends a blank `('', '---------')` to a required
+        # CharField+choices via `BlankChoiceIterator`, which renders as a third
+        # radio button alongside Cash and UPI. Our template's cash-else
+        # conditional then mislabels that empty radio as a phantom "UPI".
+        # The field is required, so the validator already enforces a choice —
+        # the UI doesn't need a "no choice yet" placeholder.
+        self.fields["mode"].choices = Payment.Mode.choices
+
 
 class DeleteEntryForm(forms.Form):
     """Soft-delete confirm form — requires a typed reason."""
