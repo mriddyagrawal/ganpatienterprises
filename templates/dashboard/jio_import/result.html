@@ -1,0 +1,51 @@
+{% extends "dashboard/_base.html" %}
+{% load humanize %}
+
+{% block title %}Import complete · Ganpati Owner{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <h1 class="text-2xl font-bold text-slate-900">Import Complete</h1>
+    <p class="text-sm text-slate-600 mt-1">
+        {% if filename %}Imported from <code class="bg-slate-100 px-1 rounded">{{ filename }}</code>.{% endif %}
+    </p>
+</div>
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+    <div class="bg-white rounded-2xl border border-green-200 p-4">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Sales created</div>
+        <div class="text-3xl font-bold text-green-600">{{ result.created_sales }}</div>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 p-4">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Total Udhar</div>
+        <div class="text-3xl font-bold text-red-500">₹{{ result.total_amount|floatformat:0|intcomma }}</div>
+        <div class="text-xs text-slate-500 mt-0.5">Face value: ₹{{ result.total_face_value|floatformat:0|intcomma }}</div>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 p-4">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 mb-1">New rows created</div>
+        <div class="text-3xl font-bold text-slate-900">
+            <span class="text-slate-700">{{ result.created_retailers }}</span>
+            <span class="text-slate-400 text-base font-normal">retailers</span>
+            <span class="text-slate-700">{{ result.created_salesmen }}</span>
+            <span class="text-slate-400 text-base font-normal">salesmen</span>
+        </div>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 p-4">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Duplicates skipped</div>
+        <div class="text-3xl font-bold text-slate-900">{{ result.skipped_duplicates }}</div>
+    </div>
+</div>
+
+{% if result.created_salesmen %}
+<div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-800 mb-5">
+    <strong>Action needed:</strong> {{ result.created_salesmen }} new salesman account(s) were created as <em>inactive</em> with no password.
+    Go to <a href="/admin/accounts/user/?role__exact=salesman&is_active__exact=0" class="underline">Django Admin → Users</a>
+    to set passwords and activate them before they can log in.
+</div>
+{% endif %}
+
+<div class="flex items-center gap-3">
+    <a href="{% url 'core:dashboard_today' %}" class="bg-slate-900 hover:bg-slate-800 text-white font-semibold px-4 py-2 rounded-md">View today's report</a>
+    <a href="{% url 'core:jio_import' %}" class="text-sm text-slate-600 hover:text-slate-900">Import another file</a>
+</div>
+{% endblock %}

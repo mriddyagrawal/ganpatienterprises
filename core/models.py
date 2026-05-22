@@ -73,6 +73,28 @@ class Retailer(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # Jio Partner PRM ID — stable retailer key from the auto-refill
+    # report (Partner PRM ID column). Stored as CharField to preserve
+    # leading zeros. Auto-populated on first import that introduces
+    # this retailer to the system.
+    jio_partner_id = models.CharField(
+        max_length=32, unique=True, null=True, blank=True,
+        help_text="Jio Partner PRM ID from the auto-refill report.",
+    )
+
+    # Which salesman is responsible for this retailer. The salesman's
+    # Dukaan list filters by this; admin sees all. Set automatically on
+    # retailer auto-create from import (using the FOS on the first row
+    # that mentions the retailer); admin can override anytime.
+    assigned_salesman = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="assigned_retailers",
+        limit_choices_to={"role": "salesman"},
+        help_text="Salesman this retailer is assigned to. Drives the Dukaan list filter.",
+    )
+
     objects = RetailerQuerySet.as_manager()
 
     class Meta:
@@ -227,6 +249,25 @@ class _LedgerEntry(models.Model):
 
 class Sale(_LedgerEntry):
     """Recharge given to a retailer (Udhar)."""
+
+    # Idempotency key for Jio-imported Sales. Unique when set; null on
+    # manually-entered (legacy / admin-created) rows. Re-uploading the
+    # same Jio CSV won't double-count rows because the importer skips
+    # any Order ID that already exists.
+    jio_order_id = models.CharField(
+        max_length=32, unique=True, null=True, blank=True,
+        help_text="Jio Order ID — unique per refill. Lets the importer be idempotent.",
+    )
+
+    # The face value Jio actually delivered (Order Amount in the CSV).
+    # Differs from `amount` because Ganpati gives retailers a 3%
+    # incentive: face_value = amount × 1.03. The Baaki math runs on
+    # `amount` (what the retailer owes), while `face_value` is kept for
+    # transparency (admin ledger, retailer statement footnote).
+    face_value = models.DecimalField(
+        max_digits=9, decimal_places=2, null=True, blank=True,
+        help_text="Jio-delivered credit (face value). amount × 1.03 = face_value.",
+    )
 
     class Meta(_LedgerEntry.Meta):
         constraints = [

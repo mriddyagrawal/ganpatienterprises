@@ -20,6 +20,7 @@ from django.db.models import Max, Q, Sum
 from django.shortcuts import get_object_or_404, render
 from django.utils import timezone
 
+from . import jio_import
 from .models import Payment, Retailer, Sale, Visit
 from .permissions import admin_required
 
@@ -336,6 +337,71 @@ def salesman_detail(request, pk):
 # ---------------------------------------------------------------------------
 # A3 — Retailer detail (admin's full ledger view, scope-aware)
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Jio import (Phase B of the jio-import branch)
+# ---------------------------------------------------------------------------
+
+
+@admin_required
+def jio_import_view(request):
+    """Two-step admin flow for ingesting a Jio auto-refill report.
+
+    GET (no session state)      → show the upload form.
+    POST with `file=`           → parse + plan + render the preview.
+    POST with `confirm=1`       → re-parse the stashed content + apply.
+    """
+    if request.method == "POST" and request.POST.get("confirm"):
+        stashed = request.session.get("jio_import_content")
+        if not stashed:
+            return render(
+                request, "dashboard/jio_import/upload.html",
+                {"active": "import", "error": "Session expired. Upload the file again."},
+            )
+        content = jio_import.unstash_file_content(stashed)
+        raw_rows = jio_import.parse_file_content(content)
+        rows, parse_errors = jio_import.validate_rows(raw_rows)
+        plan = jio_import.plan_import(rows)
+        plan.parse_errors = parse_errors
+        result = jio_import.apply_plan(plan, request.user)
+        request.session.pop("jio_import_content", None)
+        return render(
+            request, "dashboard/jio_import/result.html",
+            {"active": "import", "result": result, "filename": request.session.pop("jio_import_filename", None)},
+        )
+
+    if request.method == "POST":
+        f = request.FILES.get("file")
+        if not f:
+            return render(
+                request, "dashboard/jio_import/upload.html",
+                {"active": "import", "error": "Please pick a file to upload."},
+            )
+        content = f.read()
+        try:
+            raw_rows = jio_import.parse_file_content(content)
+        except Exception as e:  # pragma: no cover — parser errors surface here
+            return render(
+                request, "dashboard/jio_import/upload.html",
+                {"active": "import", "error": f"Could not parse file: {e}"},
+            )
+        if not raw_rows:
+            return render(
+                request, "dashboard/jio_import/upload.html",
+                {"active": "import", "error": "File contained no rows."},
+            )
+        rows, parse_errors = jio_import.validate_rows(raw_rows)
+        plan = jio_import.plan_import(rows)
+        plan.parse_errors = parse_errors
+        request.session["jio_import_content"] = jio_import.stash_file_content(content)
+        request.session["jio_import_filename"] = f.name
+        return render(
+            request, "dashboard/jio_import/preview.html",
+            {"active": "import", "plan": plan, "filename": f.name},
+        )
+
+    return render(request, "dashboard/jio_import/upload.html", {"active": "import"})
 
 
 @admin_required

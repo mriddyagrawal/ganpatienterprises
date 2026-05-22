@@ -44,3 +44,11 @@ db.sqlite3-journal
 
 # Logs
 *.log
+
+# Jio report exports (downloaded locally for testing — contain real
+# retailer / salesman names that aren't safe to commit publicly).
+# Limit the wildcard to the project root so synthetic test fixtures
+# under core/tests_fixtures/ are still tracked.
+/Order details*
+/*.tsv
+/*.xlsx

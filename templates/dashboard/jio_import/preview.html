@@ -1,0 +1,108 @@
+{% extends "dashboard/_base.html" %}
+{% load humanize %}
+
+{% block title %}Preview Jio import · Ganpati Owner{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <a href="{% url 'core:jio_import' %}" class="text-sm text-slate-500 hover:text-slate-700">← Upload another</a>
+    <h1 class="text-2xl font-bold text-slate-900 mt-1">Preview Jio Import</h1>
+    <p class="text-sm text-slate-600 mt-1">
+        {% if filename %}From <code class="bg-slate-100 px-1 rounded">{{ filename }}</code>.{% endif %}
+        Nothing has been saved yet. Review the plan below and click <strong>Confirm Import</strong> to apply.
+    </p>
+</div>
+
+{# Summary tiles #}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+    <div class="bg-white rounded-2xl border border-slate-200 p-4">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Sales to create</div>
+        <div class="text-3xl font-bold text-slate-900">{{ plan.sales_to_create }}</div>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 p-4">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Owed (sum of `amount`)</div>
+        <div class="text-3xl font-bold text-red-500">₹{{ plan.total_amount|floatformat:0|intcomma }}</div>
+        <div class="text-xs text-slate-500 mt-0.5">Face value: ₹{{ plan.total_face_value|floatformat:0|intcomma }}</div>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 p-4">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Duplicates skipped</div>
+        <div class="text-3xl font-bold text-slate-900">{{ plan.skipped_duplicates }}</div>
+        <div class="text-xs text-slate-500 mt-0.5">already in DB</div>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 p-4">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 mb-1">New retailers / salesmen</div>
+        <div class="text-3xl font-bold text-slate-900">{{ plan.new_retailers|length }} / {{ plan.new_salesmen|length }}</div>
+    </div>
+</div>
+
+{% if plan.new_salesmen %}
+<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5">
+    <h2 class="text-sm font-semibold text-slate-700 mb-2">New salesmen to be auto-created</h2>
+    <p class="text-xs text-slate-500 mb-3">Will be created with <code class="bg-slate-100 px-1 rounded">is_active=False</code> and no password. Enable them and set passwords in Django Admin before they can log in.</p>
+    <table class="w-full text-sm">
+        <thead class="text-slate-500 text-xs uppercase tracking-wide">
+            <tr><th class="text-left py-1.5">FOS ID</th><th class="text-left py-1.5">FOS Name</th><th class="text-left py-1.5">Username</th></tr>
+        </thead>
+        <tbody>
+            {% for fos_id, name in plan.new_salesmen.items %}
+            <tr class="border-t border-slate-100">
+                <td class="py-1.5 font-mono text-xs">{{ fos_id }}</td>
+                <td class="py-1.5">{{ name }}</td>
+                <td class="py-1.5 font-mono text-xs text-slate-500">fos-{{ fos_id }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if plan.new_retailers %}
+<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5">
+    <h2 class="text-sm font-semibold text-slate-700 mb-2">New retailers to be auto-created</h2>
+    <p class="text-xs text-slate-500 mb-3">Assigned to the FOS that first introduced them in this file. Reassign anytime from Django Admin → Retailers.</p>
+    <table class="w-full text-sm">
+        <thead class="text-slate-500 text-xs uppercase tracking-wide">
+            <tr><th class="text-left py-1.5">Partner PRM ID</th><th class="text-left py-1.5">Name</th></tr>
+        </thead>
+        <tbody>
+            {% for partner_id, name in plan.new_retailers.items %}
+            <tr class="border-t border-slate-100">
+                <td class="py-1.5 font-mono text-xs">{{ partner_id }}</td>
+                <td class="py-1.5">{{ name }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if plan.parse_errors %}
+<div class="bg-white rounded-2xl border border-amber-200 bg-amber-50 p-5 mb-5">
+    <h2 class="text-sm font-semibold text-amber-800 mb-2">Skipped rows ({{ plan.parse_errors|length }})</h2>
+    <p class="text-xs text-amber-700 mb-2">These rows in the file didn't match the import criteria. They're listed for review — none of them will be saved.</p>
+    <ul class="text-xs text-amber-800 space-y-0.5 font-mono">
+        {% for err in plan.parse_errors|slice:":50" %}
+        <li>{{ err }}</li>
+        {% endfor %}
+        {% if plan.parse_errors|length > 50 %}
+        <li class="text-amber-600">... and {{ plan.parse_errors|length|add:"-50" }} more</li>
+        {% endif %}
+    </ul>
+</div>
+{% endif %}
+
+<div class="flex items-center gap-3">
+    <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="confirm" value="1">
+        <button type="submit" class="bg-red-500 hover:bg-red-600 text-white font-semibold px-5 py-2.5 rounded-md"
+                {% if not plan.sales_to_create %}disabled{% endif %}>
+            Confirm Import — create {{ plan.sales_to_create }} sales
+        </button>
+    </form>
+    <a href="{% url 'core:jio_import' %}" class="text-sm text-slate-600 hover:text-slate-900">Cancel</a>
+    {% if not plan.sales_to_create %}
+    <span class="text-xs text-amber-600">Nothing to import — every row in this file was either a duplicate or skipped.</span>
+    {% endif %}
+</div>
+{% endblock %}

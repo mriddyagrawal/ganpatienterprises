@@ -14,14 +14,15 @@ class UserAdmin(DjangoUserAdmin, ModelAdmin):
     add_form = UserCreationForm
     change_password_form = AdminPasswordChangeForm
 
-    list_display = ("username", "full_name", "role", "phone", "is_active", "is_staff")
+    list_display = ("username", "full_name", "role", "phone", "jio_fos_id", "is_active", "is_staff")
     list_filter = ("role", "is_active", "is_staff")
-    search_fields = ("username", "full_name", "phone", "email")
+    search_fields = ("username", "full_name", "phone", "email", "jio_fos_id")
     ordering = ("username",)
 
     fieldsets = (
         (None, {"fields": ("username", "password")}),
         ("Profile", {"fields": ("full_name", "phone", "email", "role")}),
+        ("Jio integration", {"fields": ("jio_fos_id",)}),
         (
             "Permissions",
             {"fields": ("is_active", "is_staff", "is_superuser", "groups", "user_permissions")},
@@ -33,7 +34,7 @@ class UserAdmin(DjangoUserAdmin, ModelAdmin):
             None,
             {
                 "classes": ("wide",),
-                "fields": ("username", "full_name", "phone", "role", "password1", "password2"),
+                "fields": ("username", "full_name", "phone", "role", "jio_fos_id", "password1", "password2"),
             },
         ),
     )

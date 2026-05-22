@@ -41,13 +41,16 @@ class AuditedModelAdmin(ModelAdmin):
 
 @admin.register(Retailer)
 class RetailerAdmin(ModelAdmin):
-    list_display = ("name", "area", "phone", "owner_name", "baaki_display", "is_active")
-    list_filter = ("is_active", "area")
-    search_fields = ("name", "owner_name", "phone", "area")
+    list_display = ("name", "area", "assigned_salesman", "jio_partner_id", "baaki_display", "is_active")
+    list_filter = ("is_active", "assigned_salesman", "area")
+    search_fields = ("name", "owner_name", "phone", "area", "jio_partner_id")
+    autocomplete_fields = ("assigned_salesman",)
     readonly_fields = ("created_at", "updated_at")
     fieldsets = (
         (None, {"fields": ("name", "owner_name", "phone")}),
+        ("Assignment", {"fields": ("assigned_salesman",)}),
         ("Location", {"fields": ("area", "address")}),
+        ("Jio integration", {"fields": ("jio_partner_id",)}),
         ("Internal", {"fields": ("notes", "is_active", "created_at", "updated_at")}),
     )
 
@@ -83,13 +86,14 @@ class VisitAdmin(ModelAdmin):
 
 @admin.register(Sale)
 class SaleAdmin(AuditedModelAdmin):
-    list_display = ("retailer", "amount", "salesman", "occurred_at", "is_deleted")
+    list_display = ("retailer", "amount", "face_value", "salesman", "occurred_at", "jio_order_id", "is_deleted")
     list_filter = ("is_deleted", "salesman", "occurred_at")
-    search_fields = ("retailer__name", "salesman__username", "salesman__full_name", "notes")
+    search_fields = ("retailer__name", "salesman__username", "salesman__full_name", "notes", "jio_order_id")
     date_hierarchy = "occurred_at"
     autocomplete_fields = ("retailer", "salesman", "visit")
     fieldsets = (
         (None, {"fields": ("retailer", "salesman", "amount", "occurred_at", "notes")}),
+        ("Jio import", {"fields": ("jio_order_id", "face_value"), "classes": ("collapse",)}),
         ("Deletion", {"fields": ("is_deleted", "deleted_reason"), "classes": ("collapse",)}),
         ("Internal", {"fields": ("visit", "created_at", "updated_at"), "classes": ("collapse",)}),
     )

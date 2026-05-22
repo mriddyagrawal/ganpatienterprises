@@ -27,4 +27,7 @@ urlpatterns = [
     path("dashboard/reports/baaki-aging/", reports.baaki_aging, name="reports_baaki_aging"),
     path("dashboard/reports/salesman-performance/", reports.salesman_performance, name="reports_salesman_performance"),
     path("dashboard/reports/retailer-statement/", reports.retailer_statement, name="reports_retailer_statement"),
+
+    # Jio CSV/XLSX import (Phase B of jio-import)
+    path("dashboard/import/", dashboard.jio_import_view, name="jio_import"),
 ]

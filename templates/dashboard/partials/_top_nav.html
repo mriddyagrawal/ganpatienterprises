@@ -15,6 +15,8 @@
                    class="{% if active == 'salesmen' %}text-red-500 font-semibold{% else %}text-slate-600 hover:text-slate-900{% endif %}">Salesmen</a>
                 <a href="{% url 'core:reports_index' %}"
                    class="{% if active == 'reports' %}text-red-500 font-semibold{% else %}text-slate-600 hover:text-slate-900{% endif %}">Reports</a>
+                <a href="{% url 'core:jio_import' %}"
+                   class="{% if active == 'import' %}text-red-500 font-semibold{% else %}text-slate-600 hover:text-slate-900{% endif %}">Import</a>
                 <span class="text-slate-300">·</span>
                 <a href="/admin/" class="text-slate-600 hover:text-slate-900">Django Admin</a>
             </div>

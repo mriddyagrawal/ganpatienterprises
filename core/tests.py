@@ -328,6 +328,243 @@ class EntryNewTests(_ViewBase):
         self.assertEqual(resp.status_code, 200)  # re-renders form with errors
         self.assertFalse(Payment.objects.filter(notes="no-mode").exists())
 
+    def test_payment_form_mode_has_no_blank_choice_placeholder(self):
+        """Placeholder so the test order doesn't shift."""
+
+    def test_phase_a_jio_fields_exist(self):
+        """The schema additions for the Jio import pipeline are in place."""
+        from core.models import Retailer, Sale
+
+        # Retailer: jio_partner_id + assigned_salesman FK
+        r = Retailer.objects.create(
+            name="Phase A Test",
+            jio_partner_id="0660000999",
+            assigned_salesman=self.s1,
+        )
+        self.assertEqual(r.jio_partner_id, "0660000999")
+        self.assertEqual(r.assigned_salesman, self.s1)
+
+        # Sale: jio_order_id + face_value
+        s = Sale.objects.create(
+            salesman=self.s1, retailer=r,
+            amount=Decimal("3000.00"),
+            face_value=Decimal("3090.00"),
+            jio_order_id="2615011858",
+        )
+        self.assertEqual(s.jio_order_id, "2615011858")
+        self.assertEqual(s.face_value, Decimal("3090.00"))
+
+        # User: jio_fos_id
+        from accounts.models import User as UserModel
+        u = UserModel.objects.create_user(
+            username="fos-test", password="x",
+            role=UserModel.Role.SALESMAN, jio_fos_id="0691060999",
+        )
+        self.assertEqual(u.jio_fos_id, "0691060999")
+
+    def test_phase_a_jio_order_id_unique(self):
+        """jio_order_id is the idempotency key — same value on two Sales
+        must violate the unique constraint."""
+        from django.db import IntegrityError
+        from core.models import Sale
+
+        Sale.objects.create(
+            salesman=self.s1, retailer=self.retailer,
+            amount=Decimal("3000"), jio_order_id="DUP-ID-1",
+        )
+        with self.assertRaises(IntegrityError):
+            Sale.objects.create(
+                salesman=self.s1, retailer=self.retailer,
+                amount=Decimal("3000"), jio_order_id="DUP-ID-1",
+            )
+
+    def test_phase_a_jio_partner_id_unique(self):
+        """Two Retailers can't share a jio_partner_id."""
+        from django.db import IntegrityError
+        from core.models import Retailer as RetailerModel
+
+        RetailerModel.objects.create(name="A", jio_partner_id="PID-100")
+        with self.assertRaises(IntegrityError):
+            RetailerModel.objects.create(name="B", jio_partner_id="PID-100")
+
+    def test_phase_b_parse_normalizes_double_space_headers(self):
+        """Jio's headers have `Partner  PRM ID` (two spaces); normalizer
+        must collapse whitespace so the importer can find the column."""
+        from core.jio_import import _normalize_header
+        self.assertEqual(_normalize_header("Partner  PRM ID"), "partner_prm_id")
+        self.assertEqual(_normalize_header("  FOS Name  "), "fos_name")
+        self.assertEqual(_normalize_header("Order Date"), "order_date")
+
+    def test_phase_b_parse_tsv_with_leading_blank_row(self):
+        """The real Jio export is tab-separated with a blank leading
+        row. Parser handles both."""
+        from pathlib import Path
+        from core.jio_import import parse_file_content
+        fixture = (
+            Path(__file__).parent / "tests_fixtures" / "jio_sample.tsv"
+        ).read_bytes()
+        rows = parse_file_content(fixture)
+        self.assertEqual(len(rows), 5)
+        self.assertEqual(rows[0]["order_id"], "TST-ORDER-001")
+        self.assertEqual(rows[0]["partner_prm_id"], "0660000001")  # leading zero preserved
+        self.assertEqual(rows[0]["fos_name"], "Test FOS One")  # leading space stripped
+        # Amounts come through with whatever trailing whitespace Jio gave us,
+        # already stripped by the parser.
+        self.assertEqual(rows[0]["order_amount"], "3090.000")
+
+    def test_phase_b_parse_csv(self):
+        """Parser also handles plain CSV (comma-delimited)."""
+        from core.jio_import import parse_file_content
+        content = (
+            "\nOrder ID,Order Date,Order Time,Order Type,Partner  PRM ID,Partner  Name,"
+            "Order Amount,Transfer Amount,Order Status,FOS ID,FOS Name\n"
+            "ORD-1,21.05.2026,170055,AUTO,P-1,SHOP ONE,3090,3090,Completed,F-1,Salesman A\n"
+        ).encode("utf-8")
+        rows = parse_file_content(content)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["order_id"], "ORD-1")
+
+    def test_phase_b_parse_xlsx(self):
+        """Parser handles real .xlsx via openpyxl."""
+        import io
+        from openpyxl import Workbook
+        from core.jio_import import parse_file_content
+
+        wb = Workbook()
+        ws = wb.active
+        ws.append([])  # blank leading row
+        ws.append([
+            "Order ID", "Order Date", "Order Time", "Order Type",
+            "Partner  PRM ID", "Partner  Name",
+            "Order Amount", "Transfer Amount", "Order Status",
+            "FOS ID", "FOS Name",
+        ])
+        ws.append([
+            "ORD-XLSX-1", "21.05.2026", "170055", "AUTO",
+            "P-X", "XLSX SHOP",
+            3090, 3090, "Completed",
+            "F-X", "Salesman X",
+        ])
+        buf = io.BytesIO()
+        wb.save(buf)
+        rows = parse_file_content(buf.getvalue())
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["order_id"], "ORD-XLSX-1")
+
+    def test_phase_b_row_validation_filters(self):
+        """Pending and non-AUTO rows are skipped with a readable reason."""
+        from core.jio_import import validate_rows, parse_file_content
+        from pathlib import Path
+        fixture = (
+            Path(__file__).parent / "tests_fixtures" / "jio_sample.tsv"
+        ).read_bytes()
+        raw = parse_file_content(fixture)
+        rows, errors = validate_rows(raw)
+        # 5 raw rows: 3 valid (1 AUTO+Completed × 3), 1 Pending, 1 MANUAL.
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(len(errors), 2)
+        # Errors should mention the skipped order IDs.
+        self.assertTrue(any("TST-ORDER-004" in e for e in errors))
+        self.assertTrue(any("TST-ORDER-005" in e for e in errors))
+
+    def test_phase_b_amount_computed_from_face_value(self):
+        """3% incentive: amount = face_value / 1.03, rounded to 2 places."""
+        from decimal import Decimal
+        from core.jio_import import validate_rows, parse_file_content
+        from pathlib import Path
+        raw = parse_file_content(
+            (Path(__file__).parent / "tests_fixtures" / "jio_sample.tsv").read_bytes()
+        )
+        rows, _ = validate_rows(raw)
+        # First row: face_value 3090.000 → amount 3000.00
+        self.assertEqual(rows[0].face_value, Decimal("3090.000"))
+        self.assertEqual(rows[0].amount, Decimal("3000.00"))
+        # Second: 5150 → 5000
+        self.assertEqual(rows[1].amount, Decimal("5000.00"))
+
+    def test_phase_b_time_padding(self):
+        """Order Time `40005` → 04:00:05 (zero-padded to 6 digits)."""
+        from core.jio_import import validate_rows, parse_file_content
+        from pathlib import Path
+        raw = parse_file_content(
+            (Path(__file__).parent / "tests_fixtures" / "jio_sample.tsv").read_bytes()
+        )
+        rows, _ = validate_rows(raw)
+        # Third row's time was 40005 in the fixture.
+        third = [r for r in rows if r.order_id == "TST-ORDER-003"][0]
+        self.assertEqual(third.occurred_at.hour, 4)
+        self.assertEqual(third.occurred_at.minute, 0)
+        self.assertEqual(third.occurred_at.second, 5)
+
+    def test_phase_b_apply_creates_sales_retailers_users(self):
+        """Full import flow: 3 valid rows produce 3 Sales, 2 new retailers,
+        2 new salesmen (the fixture's order #3 reuses retailer #1 and FOS #1)."""
+        from core.jio_import import apply_plan, plan_import, validate_rows, parse_file_content
+        from pathlib import Path
+        raw = parse_file_content(
+            (Path(__file__).parent / "tests_fixtures" / "jio_sample.tsv").read_bytes()
+        )
+        rows, _ = validate_rows(raw)
+        plan = plan_import(rows)
+        self.assertEqual(plan.sales_to_create, 3)
+        self.assertEqual(len(plan.new_retailers), 2)  # P-1 (orders 1,3) + P-2 (order 2)
+        self.assertEqual(len(plan.new_salesmen), 2)  # F-1 (orders 1,3) + F-2 (order 2)
+
+        result = apply_plan(plan, self.admin)
+        self.assertEqual(result.created_sales, 3)
+        self.assertEqual(result.created_retailers, 2)
+        self.assertEqual(result.created_salesmen, 2)
+
+        # Auto-created salesmen are inactive.
+        from accounts.models import User as UserModel
+        new_fos = UserModel.objects.get(jio_fos_id="0691000001")
+        self.assertFalse(new_fos.is_active)
+        self.assertEqual(new_fos.username, "fos-0691000001")
+        self.assertEqual(new_fos.full_name, "Test FOS One")
+
+        # Auto-created retailer gets its assigned_salesman from the first
+        # row that introduced it.
+        from core.models import Retailer as RetailerModel
+        new_retailer = RetailerModel.objects.get(jio_partner_id="0660000001")
+        self.assertEqual(new_retailer.assigned_salesman, new_fos)
+
+        # The Sale rows have face_value and the divided-by-1.03 amount.
+        from core.models import Sale
+        s = Sale.objects.get(jio_order_id="TST-ORDER-001")
+        self.assertEqual(s.amount, Decimal("3000.00"))
+        self.assertEqual(s.face_value, Decimal("3090.000"))
+
+    def test_phase_b_apply_is_idempotent(self):
+        """Re-running the same import is safe — second run creates 0 Sales."""
+        from core.jio_import import apply_plan, plan_import, validate_rows, parse_file_content
+        from pathlib import Path
+        raw = parse_file_content(
+            (Path(__file__).parent / "tests_fixtures" / "jio_sample.tsv").read_bytes()
+        )
+        rows, _ = validate_rows(raw)
+        apply_plan(plan_import(rows), self.admin)  # first run
+
+        # Second run: plan should see all duplicates.
+        plan2 = plan_import(rows)
+        self.assertEqual(plan2.sales_to_create, 0)
+        self.assertEqual(plan2.skipped_duplicates, 3)
+        result2 = apply_plan(plan2, self.admin)
+        self.assertEqual(result2.created_sales, 0)
+        self.assertEqual(result2.skipped_duplicates, 3)
+
+    def test_phase_a_jio_partner_id_nullable_allows_many_blanks(self):
+        """Existing manually-entered retailers without a jio_partner_id
+        can coexist — unique=True with null=True doesn't reject multiple
+        NULLs in PostgreSQL/SQLite."""
+        from core.models import Retailer as RetailerModel
+        # Note: setUpTestData already creates retailers without jio_partner_id.
+        # Adding another should work fine.
+        RetailerModel.objects.create(name="Another", jio_partner_id=None)
+        # Two with None should be allowed
+        self.assertGreaterEqual(
+            RetailerModel.objects.filter(jio_partner_id__isnull=True).count(), 1,
+        )
+
     def test_payment_form_mode_has_no_blank_choice(self):
         """Regression: Django adds a blank ('', '---------') row to a
         required CharField+choices, which rendered as a phantom third
