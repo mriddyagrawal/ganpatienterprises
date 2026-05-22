@@ -58,7 +58,8 @@ class RetailerAdmin(ModelAdmin):
     def baaki_display(self, obj):
         # `baaki` is the annotation from with_baaki(); falls back to a
         # live compute via baaki_for(None) if the queryset wasn't annotated.
-        return getattr(obj, "baaki", None) or obj.baaki_for(None)
+        # `hasattr` (not `or`) so an annotated zero doesn't trip a re-query.
+        return obj.baaki if hasattr(obj, "baaki") else obj.baaki_for(None)
 
 
 # ---------------------------------------------------------------------------
