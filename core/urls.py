@@ -18,4 +18,6 @@ urlpatterns = [
     path("dashboard/", dashboard.today, name="dashboard_today"),
     path("dashboard/retailers/", dashboard.retailers, name="dashboard_retailers"),
     path("dashboard/retailers/<int:pk>/", dashboard.retailer_detail, name="dashboard_retailer_detail"),
+    path("dashboard/salesmen/", dashboard.salesmen, name="dashboard_salesmen"),
+    path("dashboard/salesmen/<int:pk>/", dashboard.salesman_detail, name="dashboard_salesman_detail"),
 ]

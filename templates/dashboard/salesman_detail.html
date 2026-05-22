@@ -1,0 +1,99 @@
+{% extends "dashboard/_base.html" %}
+{% load humanize %}
+
+{% block title %}{{ sm.full_name|default:sm.username }} · Salesman · Ganpati Owner{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <a href="{% url 'core:dashboard_salesmen' %}" class="text-sm text-slate-500 hover:text-slate-700">← Salesmen</a>
+</div>
+
+<div class="bg-white rounded-2xl border border-slate-200 p-5 mb-5">
+    <div class="flex items-start justify-between">
+        <div>
+            <h1 class="text-xl font-bold text-slate-900">{{ sm.full_name|default:sm.username }}</h1>
+            <div class="text-sm text-slate-500">@{{ sm.username }}{% if sm.phone %} · 📞 {{ sm.phone }}{% endif %}{% if not sm.is_active %} · <span class="text-red-500">inactive</span>{% endif %}</div>
+        </div>
+        <div class="text-right">
+            <div class="text-[10px] uppercase tracking-wide text-slate-400">Outstanding Baaki</div>
+            <div class="text-3xl font-bold {% if total_baaki > 0 %}text-red-500{% elif total_baaki < 0 %}text-green-600{% else %}text-slate-400{% endif %}">
+                {% if total_baaki < 0 %}−{% endif %}₹{{ total_baaki|floatformat:0|intcomma|cut:"-" }}
+            </div>
+            <div class="text-xs text-slate-500">across {{ n_dukaan }} dukaan</div>
+        </div>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+    <div class="bg-white rounded-2xl border border-slate-200 p-4">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 mb-2">Last 7 days</div>
+        <div class="space-y-1 text-sm">
+            <div class="flex justify-between"><span class="text-slate-600">Udhar diya</span><span class="font-bold text-red-500">₹{{ week.udhar|floatformat:0|intcomma }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-600">Cash mila</span><span class="font-bold text-green-600">₹{{ week.cash|floatformat:0|intcomma }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-600">UPI mila</span><span class="font-bold text-green-600">₹{{ week.upi|floatformat:0|intcomma }}</span></div>
+            <div class="flex justify-between text-xs text-slate-500 pt-1 border-t border-slate-100"><span>Entries</span><span>{{ week.entries }}</span></div>
+        </div>
+    </div>
+    <div class="bg-white rounded-2xl border border-slate-200 p-4">
+        <div class="text-[10px] uppercase tracking-wide text-slate-400 mb-2">Last 30 days</div>
+        <div class="space-y-1 text-sm">
+            <div class="flex justify-between"><span class="text-slate-600">Udhar diya</span><span class="font-bold text-red-500">₹{{ month.udhar|floatformat:0|intcomma }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-600">Cash mila</span><span class="font-bold text-green-600">₹{{ month.cash|floatformat:0|intcomma }}</span></div>
+            <div class="flex justify-between"><span class="text-slate-600">UPI mila</span><span class="font-bold text-green-600">₹{{ month.upi|floatformat:0|intcomma }}</span></div>
+            <div class="flex justify-between text-xs text-slate-500 pt-1 border-t border-slate-100"><span>Entries</span><span>{{ month.entries }}</span></div>
+        </div>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+    <div>
+        <h2 class="text-sm font-semibold text-slate-700 mb-2">Top Baaki Dukaan</h2>
+        <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div class="divide-y divide-slate-100">
+                {% for r in top_baaki_retailers %}
+                <a href="{% url 'core:dashboard_retailer_detail' r.pk %}?salesman={{ sm.pk }}"
+                   class="flex items-center justify-between px-4 py-2 text-sm hover:bg-slate-50">
+                    <div class="min-w-0">
+                        <div class="font-medium text-slate-900 truncate">{{ r.name }}</div>
+                        {% if r.area %}<div class="text-xs text-slate-500 truncate">{{ r.area }}</div>{% endif %}
+                    </div>
+                    <div class="text-red-500 font-bold whitespace-nowrap pl-3">₹{{ r.baaki|floatformat:0|intcomma }}</div>
+                </a>
+                {% empty %}
+                <div class="text-center text-slate-400 py-6 text-sm">Koi outstanding Baaki nahi 🎉</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div>
+        <h2 class="text-sm font-semibold text-slate-700 mb-2">Recent Activity (last 100)</h2>
+        <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div class="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
+                {% for kind, e in timeline %}
+                <div class="flex items-center justify-between px-4 py-2 text-sm">
+                    <div class="flex items-center gap-2 min-w-0">
+                        {% if kind == "sale" %}
+                        <span class="w-6 h-6 rounded-full bg-red-50 text-red-500 flex items-center justify-center text-sm flex-shrink-0">↗</span>
+                        <div class="min-w-0">
+                            <div class="font-medium text-slate-900 truncate">{{ e.retailer.name }}</div>
+                            <div class="text-xs text-slate-500">{{ e.occurred_at|date:"d M Y, h:i A" }}</div>
+                        </div>
+                        {% else %}
+                        <span class="w-6 h-6 rounded-full bg-green-50 text-green-600 flex items-center justify-center text-sm flex-shrink-0">↘</span>
+                        <div class="min-w-0">
+                            <div class="font-medium text-slate-900 truncate">{{ e.retailer.name }}</div>
+                            <div class="text-xs text-slate-500">{{ e.get_mode_display }} · {{ e.occurred_at|date:"d M Y, h:i A" }}</div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="font-bold whitespace-nowrap pl-3 {% if kind == 'sale' %}text-red-500{% else %}text-green-600{% endif %}">₹{{ e.amount|floatformat:0|intcomma }}</div>
+                </div>
+                {% empty %}
+                <div class="text-center text-slate-400 py-8 text-sm">Koi activity nahi.</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

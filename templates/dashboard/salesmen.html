@@ -1,0 +1,56 @@
+{% extends "dashboard/_base.html" %}
+{% load humanize %}
+
+{% block title %}Salesmen · Ganpati Owner{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <div class="text-[10px] uppercase tracking-wide text-slate-400">Owner Dashboard</div>
+    <h1 class="text-2xl font-bold text-slate-900">Salesmen</h1>
+</div>
+
+<div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+    <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
+            <tr>
+                <th class="text-left px-4 py-2 font-medium">Name</th>
+                <th class="text-right px-4 py-2 font-medium hidden sm:table-cell">Last 7d Udhar</th>
+                <th class="text-right px-4 py-2 font-medium hidden sm:table-cell">Last 7d Jama</th>
+                <th class="text-right px-4 py-2 font-medium">Outstanding Baaki</th>
+                <th class="text-right px-4 py-2 font-medium hidden md:table-cell">Last active</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            <tr class="border-t border-slate-100 hover:bg-slate-50 {% if not row.salesman.is_active %}opacity-50{% endif %}">
+                <td class="px-4 py-3">
+                    <a href="{% url 'core:dashboard_salesman_detail' row.salesman.pk %}"
+                       class="font-medium text-slate-900 hover:text-red-600">{{ row.salesman.full_name|default:row.salesman.username }}</a>
+                    <div class="text-xs text-slate-500">
+                        @{{ row.salesman.username }}{% if not row.salesman.is_active %} · inactive{% endif %}
+                    </div>
+                </td>
+                <td class="px-4 py-3 text-right text-red-500 font-semibold hidden sm:table-cell">
+                    ₹{{ row.week.udhar|floatformat:0|intcomma }}
+                </td>
+                <td class="px-4 py-3 text-right text-green-600 font-semibold hidden sm:table-cell">
+                    ₹{{ row.week.cash|add:row.week.upi|floatformat:0|intcomma }}
+                </td>
+                <td class="px-4 py-3 text-right font-bold {% if row.baaki > 0 %}text-red-500{% elif row.baaki < 0 %}text-green-600{% else %}text-slate-400{% endif %}">
+                    {% if row.baaki < 0 %}−{% endif %}₹{{ row.baaki|floatformat:0|intcomma|cut:"-" }}
+                </td>
+                <td class="px-4 py-3 text-right text-slate-600 hidden md:table-cell">
+                    {% if row.last_active %}
+                        {{ row.last_active|date:"d M, h:i A" }}
+                        <div class="text-xs text-slate-400">{{ row.days_since }}d ago</div>
+                    {% else %}—{% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="px-4 py-10 text-center text-slate-400 text-sm">Koi salesman nahi mila.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+<div class="text-xs text-slate-500 mt-2">{{ rows|length }} salesmen · 7-day window shown</div>
+{% endblock %}

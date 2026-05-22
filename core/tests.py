@@ -466,6 +466,55 @@ class AdminDashboardRetailersTests(_ViewBase):
         self.assertNotIn("<nav", body)
 
 
+class AdminDashboardSalesmenTests(_ViewBase):
+    """Phase 3 A4 — Salesmen list and per-salesman drill-down."""
+
+    def setUp(self):
+        # Pick amounts that don't collide with Tailwind color shades (500/600/700/...).
+        Sale.objects.create(salesman=self.s1, retailer=self.retailer, amount=Decimal("1234"))
+        Sale.objects.create(salesman=self.s2, retailer=self.retailer, amount=Decimal("8888"))
+        Payment.objects.create(salesman=self.s1, retailer=self.retailer, amount=Decimal("234"), mode=Payment.Mode.CASH)
+
+    def test_salesmen_list_admin_only(self):
+        self.login(self.s1)
+        resp = self.client.get("/dashboard/salesmen/")
+        self.assertEqual(resp.status_code, 302)
+
+    def test_salesmen_list_shows_each_salesman(self):
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/salesmen/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, self.s1.full_name)
+        self.assertContains(resp, self.s2.full_name)
+
+    def test_salesmen_list_shows_outstanding_baaki(self):
+        self.login(self.admin)
+        resp = self.client.get("/dashboard/salesmen/")
+        # s1 outstanding = 1234 - 234 = 1000. s2 outstanding = 8888.
+        # Use intcomma-formatted strings to dodge Tailwind class collisions.
+        self.assertContains(resp, "1,000")
+        self.assertContains(resp, "8,888")
+
+    def test_salesman_detail_admin_only(self):
+        self.login(self.s1)
+        resp = self.client.get(f"/dashboard/salesmen/{self.s1.pk}/")
+        self.assertEqual(resp.status_code, 302)
+
+    def test_salesman_detail_shows_timeline(self):
+        self.login(self.admin)
+        resp = self.client.get(f"/dashboard/salesmen/{self.s1.pk}/")
+        self.assertEqual(resp.status_code, 200)
+        # s1's own entries should appear; s2's 8,888 sale should not be in s1's timeline.
+        self.assertContains(resp, "1,234")
+        self.assertNotContains(resp, "8,888")
+
+    def test_salesman_detail_404_for_admin_user(self):
+        """`/dashboard/salesmen/<admin_pk>/` should 404 — admin is not a salesman."""
+        self.login(self.admin)
+        resp = self.client.get(f"/dashboard/salesmen/{self.admin.pk}/")
+        self.assertEqual(resp.status_code, 404)
+
+
 class HtmxLiveSearchTests(_ViewBase):
     """HTMX requests return just the results partial, not the full page."""
 

@@ -229,6 +229,111 @@ def retailers(request):
 
 
 # ---------------------------------------------------------------------------
+# A4 — Salesmen list + per-salesman drill-down
+# ---------------------------------------------------------------------------
+
+
+def _salesman_period_stats(user, since):
+    """Aggregate Udhar/Jama for one salesman from `since` to now."""
+    sales = Sale.objects.filter(salesman=user, is_deleted=False, occurred_at__gte=since)
+    payments = Payment.objects.filter(salesman=user, is_deleted=False, occurred_at__gte=since)
+    return {
+        "udhar": sales.aggregate(s=Sum("amount"))["s"] or Decimal("0"),
+        "cash": payments.filter(mode=Payment.Mode.CASH).aggregate(s=Sum("amount"))["s"] or Decimal("0"),
+        "upi": payments.filter(mode=Payment.Mode.UPI).aggregate(s=Sum("amount"))["s"] or Decimal("0"),
+        "entries": sales.count() + payments.count(),
+    }
+
+
+def _scoped_total_baaki(user):
+    """Sum of this salesman's outstanding Baaki across all retailers."""
+    qs = Retailer.objects.with_baaki(salesman=user)
+    return qs.aggregate(s=Sum("baaki"))["s"] or Decimal("0")
+
+
+@admin_required
+def salesmen(request):
+    """A4 — list of salesmen with this-week stats and outstanding Baaki."""
+    now = timezone.now()
+    week_start = now - timedelta(days=7)
+    month_start = now - timedelta(days=30)
+
+    rows = []
+    for sm in User.objects.filter(role=User.Role.SALESMAN).order_by("-is_active", "full_name", "username"):
+        week_stats = _salesman_period_stats(sm, week_start)
+        month_stats = _salesman_period_stats(sm, month_start)
+        last_sale = (
+            Sale.objects.filter(salesman=sm, is_deleted=False)
+            .order_by("-occurred_at").values("occurred_at").first()
+        )
+        last_payment = (
+            Payment.objects.filter(salesman=sm, is_deleted=False)
+            .order_by("-occurred_at").values("occurred_at").first()
+        )
+        candidates = [d["occurred_at"] for d in (last_sale, last_payment) if d]
+        last_active = max(candidates) if candidates else None
+        rows.append({
+            "salesman": sm,
+            "week": week_stats,
+            "month": month_stats,
+            "baaki": _scoped_total_baaki(sm),
+            "last_active": last_active,
+            "days_since": (now - last_active).days if last_active else None,
+        })
+
+    return render(request, "dashboard/salesmen.html", {
+        "active": "salesmen",
+        "rows": rows,
+        "week_start": week_start,
+        "month_start": month_start,
+    })
+
+
+@admin_required
+def salesman_detail(request, pk):
+    """Per-salesman drill-down: stats + their full activity timeline."""
+    sm = get_object_or_404(User, pk=pk, role=User.Role.SALESMAN)
+    now = timezone.now()
+    week_start = now - timedelta(days=7)
+    month_start = now - timedelta(days=30)
+
+    week_stats = _salesman_period_stats(sm, week_start)
+    month_stats = _salesman_period_stats(sm, month_start)
+    total_baaki = _scoped_total_baaki(sm)
+    n_dukaan = Retailer.objects.with_baaki(salesman=sm).filter(baaki__gt=0).count()
+
+    sales = list(
+        Sale.objects.filter(salesman=sm, is_deleted=False)
+        .select_related("retailer").order_by("-occurred_at")[:100]
+    )
+    payments = list(
+        Payment.objects.filter(salesman=sm, is_deleted=False)
+        .select_related("retailer").order_by("-occurred_at")[:100]
+    )
+    timeline = sorted(
+        [("sale", s) for s in sales] + [("payment", p) for p in payments],
+        key=lambda pair: pair[1].occurred_at,
+        reverse=True,
+    )[:100]
+
+    # Top retailers where this salesman has Baaki outstanding.
+    top_baaki_retailers = list(
+        Retailer.objects.with_baaki(salesman=sm).filter(baaki__gt=0).order_by("-baaki")[:10]
+    )
+
+    return render(request, "dashboard/salesman_detail.html", {
+        "active": "salesmen",
+        "sm": sm,
+        "week": week_stats,
+        "month": month_stats,
+        "total_baaki": total_baaki,
+        "n_dukaan": n_dukaan,
+        "timeline": timeline,
+        "top_baaki_retailers": top_baaki_retailers,
+    })
+
+
+# ---------------------------------------------------------------------------
 # A3 — Retailer detail (admin's full ledger view, scope-aware)
 # ---------------------------------------------------------------------------
 

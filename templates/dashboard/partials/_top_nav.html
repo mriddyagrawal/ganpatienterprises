@@ -11,6 +11,8 @@
                    class="{% if active == 'today' %}text-red-500 font-semibold{% else %}text-slate-600 hover:text-slate-900{% endif %}">Aaj</a>
                 <a href="{% url 'core:dashboard_retailers' %}"
                    class="{% if active == 'retailers' %}text-red-500 font-semibold{% else %}text-slate-600 hover:text-slate-900{% endif %}">Retailers</a>
+                <a href="{% url 'core:dashboard_salesmen' %}"
+                   class="{% if active == 'salesmen' %}text-red-500 font-semibold{% else %}text-slate-600 hover:text-slate-900{% endif %}">Salesmen</a>
                 <span class="text-slate-300">·</span>
                 <a href="/admin/" class="text-slate-600 hover:text-slate-900">Django Admin</a>
             </div>
