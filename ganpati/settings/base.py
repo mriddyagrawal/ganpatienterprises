@@ -145,3 +145,31 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 TAILWIND_APP_NAME = "theme"
 INTERNAL_IPS = ["127.0.0.1"]
+
+# ---------------------------------------------------------------------------
+# Notifications (Phase 6)
+# ---------------------------------------------------------------------------
+
+# Which provider class to instantiate. "telegram" today; "twilio_sms",
+# "whatsapp_cloud" planned. Set to "console" in dev/tests to skip the
+# network and just log the body.
+NOTIFICATION_PROVIDER = env("NOTIFICATION_PROVIDER", default="console")
+
+# Telegram bot credentials. Required only when NOTIFICATION_PROVIDER ==
+# "telegram"; missing values surface as a clear startup error from the
+# provider factory rather than a silent 401 at send time.
+TELEGRAM_BOT_TOKEN = env("TELEGRAM_BOT_TOKEN", default="")
+TELEGRAM_API_BASE = env(
+    "TELEGRAM_API_BASE", default="https://api.telegram.org"
+)
+
+# Per-attempt timeout when calling the provider's HTTP API. Kept short
+# so the dispatcher cron doesn't pile up on a slow upstream — failures
+# get retried via the chain.
+NOTIFICATION_TIMEOUT_SECONDS = env.int(
+    "NOTIFICATION_TIMEOUT_SECONDS", default=5
+)
+
+# Backoff schedule, in seconds, indexed by attempt_number (1 → first
+# retry delay). After the last entry, the chain is abandoned.
+NOTIFICATION_RETRY_BACKOFF_SECONDS = [60, 300, 1800, 7200, 43200]

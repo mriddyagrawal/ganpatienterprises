@@ -1417,3 +1417,108 @@ class PhoneNormalizationTests(TestCase):
     def test_retailer_save_rejects_bad_phone(self):
         with self.assertRaises(ValidationError):
             Retailer.objects.create(name="Dukaan C", phone="not-a-number")
+
+
+class NotificationMessageTests(TestCase):
+    """The body text retailers see for each Notification kind."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.salesman = _fresh_user(username="msg-sales")
+        cls.salesman.full_name = "Ramesh Kumar"
+        cls.salesman.save()
+        cls.retailer = _fresh_retailer(name="Sharma Mobile")
+
+    def _payment(self, amount="500", mode=Payment.Mode.CASH):
+        return Payment.objects.create(
+            salesman=self.salesman, retailer=self.retailer,
+            amount=Decimal(amount), mode=mode,
+        )
+
+    def test_received_body_has_amount_mode_and_names(self):
+        from .notifications import build_body
+        body = build_body(kind="received", payment=self._payment())
+        self.assertIn("Sharma Mobile", body)
+        self.assertIn("Ramesh Kumar", body)
+        self.assertIn("₹500", body)
+        self.assertIn("Cash", body)
+
+    def test_updated_body_shows_before_and_after(self):
+        from .notifications import build_body
+        p = self._payment(amount="1000", mode=Payment.Mode.UPI)
+        body = build_body(
+            kind="updated", payment=p, previous_amount=Decimal("500"),
+        )
+        self.assertIn("Pehle: ₹500", body)
+        self.assertIn("Ab: ₹1,000", body)
+        self.assertIn("UPI", body)
+
+    def test_cancelled_body_uses_current_amount(self):
+        from .notifications import build_body
+        body = build_body(kind="cancelled", payment=self._payment("250"))
+        self.assertIn("₹250", body)
+        self.assertIn("cancel", body.lower())
+
+    def test_unknown_kind_raises(self):
+        from .notifications import build_body
+        with self.assertRaises(ValueError):
+            build_body(kind="bogus", payment=self._payment())
+
+
+class NotificationProviderFactoryTests(TestCase):
+    """Factory picks the right class per settings.NOTIFICATION_PROVIDER."""
+
+    def setUp(self):
+        from .notifications.factory import reset_cache
+        reset_cache()
+        self.addCleanup(reset_cache)
+
+    def test_console_provider_default(self):
+        from django.test import override_settings
+        from .notifications import get_provider
+        from .notifications.console import ConsoleProvider
+        with override_settings(NOTIFICATION_PROVIDER="console"):
+            self.assertIsInstance(get_provider(), ConsoleProvider)
+
+    def test_telegram_provider_requires_token(self):
+        from django.test import override_settings
+        from .notifications import get_provider
+        with override_settings(
+            NOTIFICATION_PROVIDER="telegram", TELEGRAM_BOT_TOKEN=""
+        ):
+            with self.assertRaises(RuntimeError):
+                get_provider()
+
+    def test_telegram_provider_built_with_token(self):
+        from django.test import override_settings
+        from .notifications import get_provider
+        from .notifications.telegram import TelegramProvider
+        with override_settings(
+            NOTIFICATION_PROVIDER="telegram",
+            TELEGRAM_BOT_TOKEN="t0ken",
+            TELEGRAM_API_BASE="https://api.telegram.org",
+        ):
+            p = get_provider()
+            self.assertIsInstance(p, TelegramProvider)
+            self.assertEqual(p.token, "t0ken")
+
+    def test_unknown_provider_raises(self):
+        from django.test import override_settings
+        from .notifications import get_provider
+        with override_settings(NOTIFICATION_PROVIDER="carrier-pigeon"):
+            with self.assertRaises(RuntimeError):
+                get_provider()
+
+    def test_console_address_for_uses_phone(self):
+        from .notifications.console import ConsoleProvider
+        r = Retailer(phone="+919876543210", telegram_chat_id="123")
+        self.assertEqual(ConsoleProvider().address_for(r), "+919876543210")
+
+    def test_telegram_address_for_uses_chat_id(self):
+        from .notifications.telegram import TelegramProvider
+        r = Retailer(phone="+919876543210", telegram_chat_id="456")
+        p = TelegramProvider(
+            token="x", api_base="https://api.telegram.org", timeout=5,
+        )
+        self.assertEqual(p.address_for(r), "456")
+
