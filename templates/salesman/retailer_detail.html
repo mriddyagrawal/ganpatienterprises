@@ -5,7 +5,7 @@
 
 {% block content %}
 <div class="p-4">
-    <a href="{% url 'core:dukaan' %}" class="text-sm text-slate-500 mb-2 inline-flex items-center gap-1">
+    <a href="{% url 'core:dukaan' %}" class="text-sm text-slate-700 hover:text-slate-900 mb-3 inline-flex items-center gap-1 py-2 pr-3 -ml-1 pl-1 rounded-lg active:bg-slate-100">
         ← Dukaan
     </a>
 
@@ -19,8 +19,8 @@
             </div>
         </div>
         <div class="border-t border-slate-100 pt-3">
-            <div class="text-[10px] uppercase tracking-wide text-slate-400 mb-1">Mera Baaki</div>
-            <div class="text-4xl font-bold {% if baaki > 0 %}text-red-500{% elif baaki < 0 %}text-green-600{% else %}text-slate-400{% endif %}">
+            <div class="text-[11px] uppercase tracking-wide font-semibold text-slate-600 mb-1">Mera Baaki</div>
+            <div class="text-4xl font-bold {% if baaki > 0 %}text-red-500{% elif baaki < 0 %}text-green-600{% else %}text-slate-500{% endif %}">
                 {% if baaki < 0 %}−{% endif %}₹{{ baaki|floatformat:0|intcomma|cut:"-" }}
             </div>
         </div>
@@ -64,9 +64,15 @@
                     salesman side; admin edits them via Django Admin if needed.
                 {% endcomment %}
                 {% if kind == "payment" and e.is_editable and not e.is_deleted %}
-                <div class="flex flex-col gap-1 text-[11px]">
-                    <a href="{% url 'core:entry_edit' 'jama' e.pk %}" class="text-slate-500 hover:text-slate-700 px-2 py-0.5 rounded border border-slate-200">Edit</a>
-                    <a href="{% url 'core:entry_delete' 'jama' e.pk %}" class="text-red-500 hover:text-red-600 px-2 py-0.5 rounded border border-red-100">Delete</a>
+                <div class="flex flex-col gap-1.5 text-xs">
+                    <a href="{% url 'core:entry_edit' 'jama' e.pk %}"
+                       class="text-slate-700 hover:text-slate-900 active:bg-slate-100 px-3 py-2 rounded-lg border border-slate-300 font-semibold text-center min-w-[3.5rem]">
+                        Edit
+                    </a>
+                    <a href="{% url 'core:entry_delete' 'jama' e.pk %}"
+                       class="text-red-600 hover:text-red-700 active:bg-red-50 px-3 py-2 rounded-lg border border-red-200 font-semibold text-center min-w-[3.5rem]">
+                        Delete
+                    </a>
                 </div>
                 {% endif %}
             </div>

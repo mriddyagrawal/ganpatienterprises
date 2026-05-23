@@ -9,6 +9,7 @@ Django Admin and never see the salesman shell.
 from datetime import timedelta
 from decimal import Decimal
 
+from django.contrib import messages
 from django.db.models import Q, Sum
 from django.http import HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
@@ -194,6 +195,10 @@ def entry_new(request, pk):
             payment.save()
             log_change(actor=user, instance=payment, action=AuditLog.Action.CREATE)
             enqueue_payment_received(payment)
+            messages.success(
+                request,
+                f"Jama save ho gaya — ₹{int(payment.amount):,} {payment.get_mode_display()} ✅",
+            )
             return redirect("core:retailer_detail", pk=retailer.pk)
     else:
         payment_form = PaymentForm()
@@ -249,6 +254,7 @@ def entry_edit(request, kind, pk):
                 before=before, reason=form.cleaned_data["reason"],
             )
             notify_on_edit_if_needed(entry, before=before)
+            messages.success(request, "Jama update ho gaya ✅")
             return redirect("core:retailer_detail", pk=entry.retailer_id)
 
     return render(
@@ -290,6 +296,7 @@ def entry_delete(request, kind, pk):
                 before=before, reason=form.cleaned_data["reason"],
             )
             enqueue_payment_cancelled(entry)
+            messages.success(request, "Jama delete ho gaya")
             return redirect("core:retailer_detail", pk=entry.retailer_id)
     else:
         form = DeleteEntryForm()

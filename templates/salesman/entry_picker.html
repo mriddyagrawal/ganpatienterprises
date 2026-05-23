@@ -5,18 +5,21 @@
 
 {% block content %}
 <div class="p-4">
-    <h1 class="text-xl font-bold text-slate-900 mb-1">Naya Entry</h1>
-    <p class="text-sm text-slate-500 mb-4">Kis dukaan ke liye?</p>
+    <h1 class="text-xl font-bold text-slate-900 mb-1">Naya Jama</h1>
+    <p class="text-sm text-slate-700 mb-4">Kis dukaan ke liye?</p>
 
     {# Live HTMX search. #}
-    <div class="mb-3">
+    <div class="mb-3 relative gpe-search-wrap">
         <input type="search" name="q" value="{{ search }}" placeholder="Dukaan dhundein…"
-               class="w-full px-4 py-3 text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent"
+               class="w-full px-4 py-3 pr-12 text-base border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-600 focus:border-transparent gpe-search-input"
                autocomplete="off" autofocus
                hx-get="{% url 'core:entry_new_picker' %}"
                hx-trigger="keyup changed delay:300ms, search"
                hx-target="#picker-results"
                hx-push-url="true">
+        <button type="button"
+                class="gpe-search-clear absolute right-2 top-1/2 -translate-y-1/2 w-9 h-9 rounded-full hidden items-center justify-center text-2xl leading-none text-slate-500 hover:text-slate-900 active:bg-slate-100"
+                aria-label="Search clear karein">×</button>
     </div>
 
     <div id="picker-results">

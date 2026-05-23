@@ -5,7 +5,7 @@
 
 {% block content %}
 <div class="p-4">
-    <a href="{% url 'core:retailer_detail' retailer.pk %}" class="text-sm text-slate-500 mb-2 inline-flex items-center gap-1">
+    <a href="{% url 'core:retailer_detail' retailer.pk %}" class="text-sm text-slate-700 hover:text-slate-900 mb-3 inline-flex items-center gap-1 py-2 pr-3 -ml-1 pl-1 rounded-lg active:bg-slate-100">
         ← {{ retailer.name }}
     </a>
 
@@ -15,8 +15,8 @@
             {% if retailer.area %}<div class="text-xs text-slate-500">{{ retailer.area }}</div>{% endif %}
         </div>
         <div class="text-right">
-            <div class="text-[10px] uppercase tracking-wide text-slate-400">Abhi Baaki</div>
-            <div class="font-bold {% if baaki > 0 %}text-red-500{% elif baaki < 0 %}text-green-600{% else %}text-slate-400{% endif %}">
+            <div class="text-[11px] uppercase tracking-wide font-semibold text-slate-600">Abhi Baaki</div>
+            <div class="font-bold {% if baaki > 0 %}text-red-500{% elif baaki < 0 %}text-green-600{% else %}text-slate-500{% endif %}">
                 {% if baaki < 0 %}−{% endif %}₹{{ baaki|floatformat:0|intcomma|cut:"-" }}
             </div>
         </div>
