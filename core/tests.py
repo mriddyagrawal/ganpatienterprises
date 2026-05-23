@@ -1342,6 +1342,15 @@ class AuditSnapshotTests(TestCase):
         # Human-readable label is kept alongside for forensic readability.
         self.assertEqual(snap["retailer"], str(self.retailer))
 
+    def test_snapshot_canonicalizes_decimal_to_two_places(self):
+        # Reviewer Watch on 317ca6e: before/after snapshots compared
+        # "400.00" vs "600", false-positive noise in audit diffs.
+        # Now: both sides canonicalize Decimals to two-place strings.
+        from .audit import _coerce
+        self.assertEqual(_coerce(Decimal("600")), "600.00")
+        self.assertEqual(_coerce(Decimal("400.00")), "400.00")
+        self.assertEqual(_coerce(Decimal("1234.5")), "1234.50")
+
     def test_snapshot_survives_retailer_rename(self):
         sale = Sale.objects.create(
             salesman=self.salesman, retailer=self.retailer, amount=Decimal("100")
@@ -1545,10 +1554,24 @@ class NotificationProviderFactoryTests(TestCase):
             with self.assertRaises(RuntimeError):
                 get_provider()
 
-    def test_console_address_for_uses_phone(self):
+    def test_console_address_for_prefers_chat_id(self):
+        # Mirrors TelegramProvider in dev: prefer telegram_chat_id so the
+        # body logged in dev matches what prod will see. Phone is the
+        # fallback for retailers that don't have a chat_id yet.
         from .notifications.console import ConsoleProvider
-        r = Retailer(phone="+919876543210", telegram_chat_id="123")
-        self.assertEqual(ConsoleProvider().address_for(r), "+919876543210")
+        p = ConsoleProvider()
+        with_both = Retailer(phone="+919876543210", telegram_chat_id="123")
+        self.assertEqual(p.address_for(with_both), "123")
+        phone_only = Retailer(phone="+919876543210", telegram_chat_id="")
+        self.assertEqual(p.address_for(phone_only), "+919876543210")
+        neither = Retailer(phone="", telegram_chat_id="")
+        self.assertEqual(p.address_for(neither), "")
+
+    def test_console_provider_channel_is_console(self):
+        # Not "telegram" — fixes the lie that would feed phones-as-chat-ids
+        # to TelegramProvider after a flip from console to telegram.
+        from .notifications.console import ConsoleProvider
+        self.assertEqual(ConsoleProvider().channel, "console")
 
     def test_telegram_address_for_uses_chat_id(self):
         from .notifications.telegram import TelegramProvider

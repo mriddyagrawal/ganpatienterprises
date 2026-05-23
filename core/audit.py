@@ -7,6 +7,7 @@ classes (`save_model` / `delete_model`). Phase 2 will add salesman-facing
 views that call `log_change` directly.
 """
 
+from decimal import Decimal
 from typing import Any
 
 from django.db import models as djmodels
@@ -15,9 +16,16 @@ from .models import AuditLog
 
 
 _JSON_PRIMITIVES = (type(None), bool, int, float, str)
+_MONEY_QUANTUM = Decimal("0.01")
 
 
 def _coerce(value: Any) -> Any:
+    # Decimal is the load-bearing case: Payment.amount + Sale.amount.
+    # Canonicalize to two decimal places so a before/after diff doesn't
+    # show noise from one snapshot reading the DB ("400.00") and the
+    # other reading in-memory ("400"). Fraud investigators diff these.
+    if isinstance(value, Decimal):
+        return str(value.quantize(_MONEY_QUANTUM))
     if isinstance(value, _JSON_PRIMITIVES):
         return value
     return str(value)

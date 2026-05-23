@@ -5,9 +5,11 @@ Run from cron / systemd timer every minute:
 
     * * * * * cd /srv/ganpati && uv run python manage.py dispatch_notifications
 
-The command is idempotent and re-entrant. Multiple concurrent runs are
-safe because each row is claimed with `select_for_update(skip_locked=True)`
-before dispatch.
+This is **single-dispatcher safe** as written — one cron, one process at
+a time. The query is a plain filter, no row lock. Before scaling to a
+second dispatcher (or a buggy double-cron), wrap the per-row claim in
+`select_for_update(skip_locked=True)` so two runs can't pick the same
+QUEUED row and double-send.
 
 Retry chain (PLAN §6, Phase 6):
 - On SENT: mark the row status=sent, set provider_message_id.
@@ -91,7 +93,18 @@ class Command(BaseCommand):
         Returns one of "sent" / "failed" / "abandoned". Wrapped in a
         transaction so the row update + retry-row insert are atomic.
         """
-        result = provider.send(address=n.address, body=n.body)
+        from core.notifications import SendOutcome, SendResult
+        # Defense-in-depth: both shipped providers promise not to raise,
+        # but a future provider with a bug shouldn't kill the whole
+        # batch. Convert any unexpected exception to a FAILED result so
+        # the retry chain takes over instead of the loop crashing.
+        try:
+            result = provider.send(address=n.address, body=n.body)
+        except Exception as e:
+            result = SendResult(
+                outcome=SendOutcome.FAILED,
+                error=f"provider raised: {e!r}",
+            )
         with transaction.atomic():
             n.attempted_at = timezone.now()
             if result.outcome == "sent":

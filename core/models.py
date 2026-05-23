@@ -269,9 +269,28 @@ class _LedgerEntry(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # Threshold for considering an entry "edited". `created_at` and the
+    # first `updated_at` come from the same INSERT but Django's
+    # `auto_now_add` and `auto_now` aren't guaranteed to land on identical
+    # microsecond values across DB engines — the 2-second slack prevents
+    # a fresh row from claiming it's been edited.
+    _EDITED_THRESHOLD = timedelta(seconds=2)
+
     class Meta:
         abstract = True
         ordering = ["-occurred_at"]
+
+    @property
+    def is_edited(self) -> bool:
+        """True if this entry has been edited since creation.
+
+        Anti-fraud anchor: surfaced in the UI as an "Edited" badge with
+        timestamp, so retailers and admins can see at a glance which rows
+        have been touched after the fact.
+        """
+        if self.created_at is None or self.updated_at is None:
+            return False
+        return (self.updated_at - self.created_at) > self._EDITED_THRESHOLD
 
     def clean(self):
         super().clean()
@@ -431,6 +450,12 @@ class Notification(models.Model):
         CANCELLED = "cancelled", "Payment cancelled"
 
     class Channel(models.TextChoices):
+        # `console` is the dev/test pseudo-channel — logs the body
+        # instead of hitting a real upstream. Keeping it as its own
+        # value (not "telegram") so a later prod swap from "console"
+        # to "telegram" doesn't accidentally feed phone numbers to the
+        # Telegram Bot API as chat IDs.
+        CONSOLE = "console", "Console (dev)"
         TELEGRAM = "telegram", "Telegram"
         SMS = "sms", "SMS"
         WHATSAPP = "whatsapp", "WhatsApp"
