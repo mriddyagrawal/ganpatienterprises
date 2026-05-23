@@ -35,7 +35,12 @@ def build_body(*, kind: str, payment, previous_amount: Decimal | None = None) ->
 
     if kind == "updated":
         if previous_amount is None:
-            previous_amount = payment.amount
+            raise ValueError(
+                "previous_amount is required for kind='updated' — the "
+                "retailer needs to see what changed; silent fallback "
+                "would render 'Pehle: ₹X, Ab: ₹X' which is worse than "
+                "no message."
+            )
         return (
             f"Namaste {retailer.name} ji,\n\n"
             f"Aapka payment update hua hai:\n"

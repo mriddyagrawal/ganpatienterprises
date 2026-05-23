@@ -17,6 +17,11 @@ from django.utils import timezone
 from .audit import log_change, snapshot
 from .forms import DeleteEntryForm, PaymentForm
 from .models import AuditLog, Payment, Retailer, Sale, Visit
+from .notifications import (
+    enqueue_payment_cancelled,
+    enqueue_payment_received,
+    notify_on_edit_if_needed,
+)
 from .permissions import salesman_required
 
 
@@ -188,6 +193,7 @@ def entry_new(request, pk):
             payment.salesman = user
             payment.save()
             log_change(actor=user, instance=payment, action=AuditLog.Action.CREATE)
+            enqueue_payment_received(payment)
             return redirect("core:retailer_detail", pk=retailer.pk)
     else:
         payment_form = PaymentForm()
@@ -225,14 +231,22 @@ def entry_edit(request, kind, pk):
     if not _can_salesman_edit(entry, user):
         return HttpResponseForbidden("24-ghante ka edit window khatam ho gaya.")
 
+    # Snapshot the pre-edit state BEFORE PaymentForm.is_valid() runs —
+    # ModelForm's _post_clean() mutates `entry` in place when the form
+    # binds, so any snapshot taken after is_valid() captures the new
+    # values, not the original ones. The audit log + the "amount
+    # changed?" decision in notify_on_edit_if_needed both depend on
+    # this pre-edit snapshot being accurate.
     form = PaymentForm(request.POST or None, instance=entry)
-    if request.method == "POST" and form.is_valid():
+    if request.method == "POST":
         before = snapshot(entry)
-        form.save()
-        log_change(
-            actor=user, instance=entry, action=AuditLog.Action.UPDATE, before=before
-        )
-        return redirect("core:retailer_detail", pk=entry.retailer_id)
+        if form.is_valid():
+            form.save()
+            log_change(
+                actor=user, instance=entry, action=AuditLog.Action.UPDATE, before=before
+            )
+            notify_on_edit_if_needed(entry, before=before)
+            return redirect("core:retailer_detail", pk=entry.retailer_id)
 
     return render(
         request,
@@ -271,6 +285,7 @@ def entry_delete(request, kind, pk):
             log_change(
                 actor=user, instance=entry, action=AuditLog.Action.DELETE, before=before
             )
+            enqueue_payment_cancelled(entry)
             return redirect("core:retailer_detail", pk=entry.retailer_id)
     else:
         form = DeleteEntryForm()

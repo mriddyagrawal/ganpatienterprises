@@ -1492,6 +1492,13 @@ class NotificationMessageTests(TestCase):
         with self.assertRaises(ValueError):
             build_body(kind="bogus", payment=self._payment())
 
+    def test_updated_without_previous_amount_raises(self):
+        # Watch on 9721285: silent fallback rendered "Pehle ₹X / Ab ₹X" —
+        # worse than no message. Now raises so callers get a clear error.
+        from .notifications import build_body
+        with self.assertRaises(ValueError):
+            build_body(kind="updated", payment=self._payment(), previous_amount=None)
+
 
 class NotificationProviderFactoryTests(TestCase):
     """Factory picks the right class per settings.NOTIFICATION_PROVIDER."""
@@ -1550,3 +1557,203 @@ class NotificationProviderFactoryTests(TestCase):
         )
         self.assertEqual(p.address_for(r), "456")
 
+
+class _FailingProvider:
+    """Test double — always returns FAILED."""
+
+    channel = "telegram"
+
+    def address_for(self, retailer):
+        return retailer.phone
+
+    def send(self, *, address, body):
+        from .notifications import SendOutcome, SendResult
+        return SendResult(outcome=SendOutcome.FAILED, error="boom")
+
+
+class NotificationDispatcherTests(TestCase):
+    """The retry chain: each attempt is its own row; failed rows enqueue
+    the next try; the schedule's last try ends with ABANDONED."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.salesman = _fresh_user(username="disp-sales")
+        cls.retailer = Retailer.objects.create(
+            name="Disp Dukaan", phone="9876543210",
+            assigned_salesman=cls.salesman,
+        )
+
+    def _make_queued(self):
+        from .models import Notification
+        from .notifications import build_body
+        payment = Payment.objects.create(
+            salesman=self.salesman, retailer=self.retailer,
+            amount=Decimal("500"), mode=Payment.Mode.CASH,
+        )
+        return Notification.objects.create(
+            payment=payment,
+            kind=Notification.Kind.RECEIVED,
+            channel="telegram",
+            address=self.retailer.phone,
+            body=build_body(kind="received", payment=payment),
+            status=Notification.Status.QUEUED,
+            attempt_number=1,
+            send_after=timezone.now(),
+        )
+
+    def _run_dispatcher(self):
+        from django.core.management import call_command
+        call_command("dispatch_notifications", verbosity=0)
+
+    def setUp(self):
+        from .notifications.factory import reset_cache
+        reset_cache()
+        self.addCleanup(reset_cache)
+
+    def test_dispatcher_marks_sent_on_success(self):
+        from .models import Notification
+        n = self._make_queued()
+        with self.settings(NOTIFICATION_PROVIDER="console"):
+            self._run_dispatcher()
+        n.refresh_from_db()
+        self.assertEqual(n.status, Notification.Status.SENT)
+        self.assertEqual(n.provider_message_id, "console")
+        self.assertIsNotNone(n.attempted_at)
+
+    def test_dispatcher_failed_enqueues_next_attempt(self):
+        from unittest.mock import patch
+        from .models import Notification
+        n = self._make_queued()
+        # Patch get_provider where the dispatcher imported it.
+        with patch(
+            "core.management.commands.dispatch_notifications.get_provider",
+            return_value=_FailingProvider(),
+        ):
+            self._run_dispatcher()
+        n.refresh_from_db()
+        self.assertEqual(n.status, Notification.Status.FAILED)
+        self.assertIn("boom", n.error)
+        retries = Notification.objects.filter(previous_attempt=n)
+        self.assertEqual(retries.count(), 1)
+        retry = retries.first()
+        self.assertEqual(retry.status, Notification.Status.QUEUED)
+        self.assertEqual(retry.attempt_number, 2)
+        self.assertGreater(retry.send_after, timezone.now())
+
+    def test_dispatcher_skips_rows_with_future_send_after(self):
+        from .models import Notification
+        n = self._make_queued()
+        n.send_after = timezone.now() + timedelta(minutes=5)
+        n.save(update_fields=["send_after"])
+        with self.settings(NOTIFICATION_PROVIDER="console"):
+            self._run_dispatcher()
+        n.refresh_from_db()
+        self.assertEqual(n.status, Notification.Status.QUEUED)
+
+    def test_dispatcher_abandons_after_schedule_exhausted(self):
+        from unittest.mock import patch
+        from django.conf import settings as dj_settings
+        from .models import Notification
+        n = self._make_queued()
+        n.attempt_number = len(dj_settings.NOTIFICATION_RETRY_BACKOFF_SECONDS) + 1
+        n.save(update_fields=["attempt_number"])
+        with patch(
+            "core.management.commands.dispatch_notifications.get_provider",
+            return_value=_FailingProvider(),
+        ):
+            self._run_dispatcher()
+        n.refresh_from_db()
+        self.assertEqual(n.status, Notification.Status.FAILED)
+        chain_end = Notification.objects.filter(previous_attempt=n).first()
+        self.assertIsNotNone(chain_end)
+        self.assertEqual(chain_end.status, Notification.Status.ABANDONED)
+
+
+class NotificationEnqueueTests(TestCase):
+    """View-layer hooks must enqueue a Notification on Payment lifecycle."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.salesman = User.objects.create_user(
+            username="hk-s1", password="x", full_name="Hook One",
+            role=User.Role.SALESMAN,
+        )
+        cls.retailer = Retailer.objects.create(
+            name="Hook Dukaan", phone="9876543210",
+            assigned_salesman=cls.salesman,
+        )
+
+    def setUp(self):
+        from .notifications.factory import reset_cache
+        reset_cache()
+        self.client.force_login(self.salesman)
+
+    def test_entry_new_enqueues_received(self):
+        from .models import Notification
+        resp = self.client.post(
+            f"/dukaan/{self.retailer.pk}/entry/",
+            data={"amount": "500", "mode": Payment.Mode.CASH, "notes": ""},
+        )
+        self.assertEqual(resp.status_code, 302)
+        notif = Notification.objects.get()
+        self.assertEqual(notif.kind, Notification.Kind.RECEIVED)
+        self.assertEqual(notif.status, Notification.Status.QUEUED)
+        self.assertIn("500", notif.body)
+
+    def test_entry_edit_enqueues_updated_on_amount_change(self):
+        from .models import Notification
+        p = Payment.objects.create(
+            salesman=self.salesman, retailer=self.retailer,
+            amount=Decimal("500"), mode=Payment.Mode.CASH,
+        )
+        resp = self.client.post(
+            f"/entry/jama/{p.pk}/edit/",
+            data={"amount": "750", "mode": Payment.Mode.CASH, "notes": ""},
+        )
+        self.assertEqual(resp.status_code, 302)
+        notifs = list(Notification.objects.filter(payment=p))
+        self.assertEqual(len(notifs), 1)
+        self.assertEqual(notifs[0].kind, Notification.Kind.UPDATED)
+        self.assertIn("Pehle: ₹500", notifs[0].body)
+        self.assertIn("Ab: ₹750", notifs[0].body)
+
+    def test_entry_edit_no_material_change_no_enqueue(self):
+        from .models import Notification
+        p = Payment.objects.create(
+            salesman=self.salesman, retailer=self.retailer,
+            amount=Decimal("500"), mode=Payment.Mode.CASH,
+            notes="original",
+        )
+        resp = self.client.post(
+            f"/entry/jama/{p.pk}/edit/",
+            data={"amount": "500", "mode": Payment.Mode.CASH, "notes": "fixed typo"},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(Notification.objects.filter(payment=p).count(), 0)
+
+    def test_entry_delete_enqueues_cancelled(self):
+        from .models import Notification
+        p = Payment.objects.create(
+            salesman=self.salesman, retailer=self.retailer,
+            amount=Decimal("500"), mode=Payment.Mode.CASH,
+        )
+        resp = self.client.post(
+            f"/entry/jama/{p.pk}/delete/",
+            data={"reason": "Wrong dukaan"},
+        )
+        self.assertEqual(resp.status_code, 302)
+        notif = Notification.objects.get(payment=p)
+        self.assertEqual(notif.kind, Notification.Kind.CANCELLED)
+
+    def test_no_address_no_enqueue(self):
+        from .models import Notification
+        r = Retailer.objects.create(
+            name="No Phone Dukaan", assigned_salesman=self.salesman,
+        )
+        self.assertEqual(r.phone, "")
+        resp = self.client.post(
+            f"/dukaan/{r.pk}/entry/",
+            data={"amount": "100", "mode": Payment.Mode.CASH, "notes": ""},
+        )
+        self.assertEqual(resp.status_code, 302)
+        self.assertEqual(Notification.objects.count(), 0)
