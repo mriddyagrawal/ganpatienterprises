@@ -49,6 +49,11 @@
                     <div class="min-w-0">
                         <div class="font-semibold text-slate-900 {% if e.is_deleted %}line-through{% endif %}">Jama ₹{{ e.amount|floatformat:0|intcomma }} <span class="text-xs font-normal text-slate-500">({{ e.get_mode_display }})</span></div>
                         <div class="text-xs text-slate-500">{{ e.occurred_at|date:"d M, h:i A" }}</div>
+                        {% if kind == "payment" and e.is_edited and not e.is_deleted %}
+                        <div class="text-[10px] font-semibold text-amber-700 bg-amber-100 inline-block px-1.5 py-0.5 rounded mt-1">
+                            Edited {{ e.updated_at|date:"d M, h:i A" }}
+                        </div>
+                        {% endif %}
                         {% if e.notes %}<div class="text-xs text-slate-600 mt-1 italic">{{ e.notes }}</div>{% endif %}
                     </div>
                     {% endif %}

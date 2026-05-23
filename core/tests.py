@@ -1877,3 +1877,60 @@ class AuditLogReasonTests(TestCase):
         self.assertEqual(resp.status_code, 302)
         audit = AuditLog.objects.get(action=AuditLog.Action.CREATE)
         self.assertEqual(audit.reason, "")
+
+
+class IsEditedBadgeTests(TestCase):
+    """`is_edited` is the anti-fraud signal: shows in UI when a payment
+    has been touched since creation, so retailer + admin can spot it."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.salesman = User.objects.create_user(
+            username="bdg-s", password="x", full_name="Badge",
+            role=User.Role.SALESMAN,
+        )
+        cls.retailer = Retailer.objects.create(
+            name="Badge Dukaan", phone="9876543210",
+            assigned_salesman=cls.salesman,
+        )
+
+    def test_fresh_payment_is_not_edited(self):
+        p = Payment.objects.create(
+            salesman=self.salesman, retailer=self.retailer,
+            amount=Decimal("500"), mode=Payment.Mode.CASH,
+        )
+        self.assertFalse(p.is_edited)
+
+    def test_payment_after_save_with_time_delta_is_edited(self):
+        # Force updated_at to land outside the slack window.
+        p = Payment.objects.create(
+            salesman=self.salesman, retailer=self.retailer,
+            amount=Decimal("500"), mode=Payment.Mode.CASH,
+        )
+        Payment.objects.filter(pk=p.pk).update(
+            updated_at=p.created_at + timedelta(minutes=5),
+        )
+        p.refresh_from_db()
+        self.assertTrue(p.is_edited)
+
+    def test_salesman_template_shows_edited_badge(self):
+        # End-to-end: badge appears on /dukaan/<pk>/.
+        p = Payment.objects.create(
+            salesman=self.salesman, retailer=self.retailer,
+            amount=Decimal("500"), mode=Payment.Mode.CASH,
+        )
+        Payment.objects.filter(pk=p.pk).update(
+            updated_at=p.created_at + timedelta(minutes=5),
+        )
+        self.client.force_login(self.salesman)
+        resp = self.client.get(f"/dukaan/{self.retailer.pk}/")
+        self.assertContains(resp, "Edited")
+
+    def test_salesman_template_no_badge_on_fresh_payment(self):
+        Payment.objects.create(
+            salesman=self.salesman, retailer=self.retailer,
+            amount=Decimal("500"), mode=Payment.Mode.CASH,
+        )
+        self.client.force_login(self.salesman)
+        resp = self.client.get(f"/dukaan/{self.retailer.pk}/")
+        self.assertNotContains(resp, "Edited")

@@ -44,6 +44,11 @@
                     {% else %}
                     <span class="text-green-600 font-medium">↘ Jama <span class="text-xs font-normal text-slate-500">({{ e.get_mode_display }})</span>{% if e.is_deleted %} <span class="text-[10px] uppercase tracking-wide ml-1">deleted</span>{% endif %}</span>
                     {% endif %}
+                    {% if e.is_edited and not e.is_deleted %}
+                    <span class="ml-2 text-[10px] font-semibold text-amber-700 bg-amber-100 inline-block px-1.5 py-0.5 rounded align-middle">
+                        Edited {{ e.updated_at|date:"d M, h:i A" }}
+                    </span>
+                    {% endif %}
                     {% if e.notes %}<div class="text-xs text-slate-500 italic mt-0.5">{{ e.notes }}</div>{% endif %}
                     {% if e.is_deleted and e.deleted_reason %}<div class="text-xs text-red-500 mt-0.5">{{ e.deleted_reason }}</div>{% endif %}
                 </td>
