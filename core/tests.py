@@ -1418,6 +1418,34 @@ class PhoneNormalizationTests(TestCase):
         with self.assertRaises(ValidationError):
             Retailer.objects.create(name="Dukaan C", phone="not-a-number")
 
+    def test_retailer_clean_surfaces_field_error_for_admin_form(self):
+        # The admin form path goes through full_clean() → clean(). A bad
+        # phone must surface as a field error, not raise out of save() and
+        # bubble into a 500 page.
+        r = Retailer(name="Dukaan D", phone="not-a-number")
+        with self.assertRaises(ValidationError) as ctx:
+            r.full_clean()
+        self.assertIn("phone", ctx.exception.error_dict)
+
+    def test_admin_add_retailer_with_bad_phone_returns_form_error(self):
+        # End-to-end: the Django Admin add view must re-render the form
+        # with a field-level error, not 500.
+        admin = User.objects.create_user(
+            username="phone-adm", password="x", full_name="Phone Owner",
+            role=User.Role.ADMIN, is_staff=True, is_superuser=True,
+        )
+        self.client.force_login(admin)
+        resp = self.client.post(
+            "/admin/core/retailer/add/",
+            data={"name": "Bad Phone Dukaan", "phone": "not-a-number"},
+            follow=False,
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "no digits", status_code=200)
+        self.assertFalse(
+            Retailer.objects.filter(name="Bad Phone Dukaan").exists()
+        )
+
 
 class NotificationMessageTests(TestCase):
     """The body text retailers see for each Notification kind."""

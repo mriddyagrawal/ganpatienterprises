@@ -122,8 +122,22 @@ class Retailer(models.Model):
     class Meta:
         ordering = ["name"]
 
+    def clean(self):
+        # Surfaces a friendly field-level error in Django Admin / ModelForms
+        # before save() runs. ModelForm.is_valid() calls full_clean() which
+        # calls clean() — so any ValidationError lands as "Phone has no
+        # digits" *on the phone field* rather than bubbling out as a 500.
+        super().clean()
+        from .phones import normalize_indian_phone
+        try:
+            self.phone = normalize_indian_phone(self.phone)
+        except ValidationError as e:
+            raise ValidationError({"phone": e.messages})
+
     def save(self, *args, **kwargs):
-        # Canonicalize phone to +91XXXXXXXXXX. Blank stays blank.
+        # Belt-and-suspenders: ORM / shell / bulk paths don't call clean(),
+        # so canonicalize here too. The admin form path is already caught
+        # above and never reaches a bad phone here.
         from .phones import normalize_indian_phone
         self.phone = normalize_indian_phone(self.phone)
         super().save(*args, **kwargs)
