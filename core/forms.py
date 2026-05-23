@@ -46,7 +46,30 @@ class SaleForm(forms.ModelForm):
 
 
 class PaymentForm(forms.ModelForm):
-    """Jama entry."""
+    """Jama entry.
+
+    Pass ``require_edit_reason=True`` to attach a non-model ``reason``
+    field that must be filled in. The view reads ``form.cleaned_data["reason"]``
+    and forwards it to :func:`core.audit.log_change`. This is how
+    AuditLog.reason gets populated for salesman edits — the WHY of every
+    edit is captured next to the WHAT.
+    """
+
+    reason = forms.CharField(
+        required=False,
+        max_length=500,
+        widget=forms.Textarea(attrs={
+            "rows": 2,
+            "class": (
+                "w-full px-3 py-3 text-base border border-slate-300 rounded-lg "
+                "focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            ),
+            "placeholder": "Edit karne ka reason batayein…",
+        }),
+        error_messages={
+            "required": "Edit ka reason zaroori hai.",
+        },
+    )
 
     class Meta:
         model = Payment
@@ -68,7 +91,7 @@ class PaymentForm(forms.ModelForm):
             }),
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, require_edit_reason: bool = False, **kwargs):
         super().__init__(*args, **kwargs)
         # Django's ModelForm prepends a blank `('', '---------')` to a required
         # CharField+choices via `BlankChoiceIterator`, which renders as a third
@@ -77,6 +100,21 @@ class PaymentForm(forms.ModelForm):
         # The field is required, so the validator already enforces a choice —
         # the UI doesn't need a "no choice yet" placeholder.
         self.fields["mode"].choices = Payment.Mode.choices
+
+        # Promote the always-attached `reason` field to required when the
+        # view tells us this is an edit. Keeps the create path frictionless
+        # (no reason needed; the create itself is the WHY) while making
+        # every edit explain itself in the audit log.
+        self._require_edit_reason = require_edit_reason
+        if not require_edit_reason:
+            self.fields.pop("reason", None)
+
+    def clean_reason(self):
+        # Only called when the field is present (i.e. require_edit_reason).
+        reason = (self.cleaned_data.get("reason") or "").strip()
+        if not reason:
+            raise forms.ValidationError("Edit ka reason zaroori hai.")
+        return reason
 
 
 class DeleteEntryForm(forms.Form):

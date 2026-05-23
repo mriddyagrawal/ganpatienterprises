@@ -237,13 +237,16 @@ def entry_edit(request, kind, pk):
     # values, not the original ones. The audit log + the "amount
     # changed?" decision in notify_on_edit_if_needed both depend on
     # this pre-edit snapshot being accurate.
-    form = PaymentForm(request.POST or None, instance=entry)
+    form = PaymentForm(
+        request.POST or None, instance=entry, require_edit_reason=True,
+    )
     if request.method == "POST":
         before = snapshot(entry)
         if form.is_valid():
             form.save()
             log_change(
-                actor=user, instance=entry, action=AuditLog.Action.UPDATE, before=before
+                actor=user, instance=entry, action=AuditLog.Action.UPDATE,
+                before=before, reason=form.cleaned_data["reason"],
             )
             notify_on_edit_if_needed(entry, before=before)
             return redirect("core:retailer_detail", pk=entry.retailer_id)
@@ -283,7 +286,8 @@ def entry_delete(request, kind, pk):
             entry.deleted_reason = form.cleaned_data["reason"]
             entry.save()
             log_change(
-                actor=user, instance=entry, action=AuditLog.Action.DELETE, before=before
+                actor=user, instance=entry, action=AuditLog.Action.DELETE,
+                before=before, reason=form.cleaned_data["reason"],
             )
             enqueue_payment_cancelled(entry)
             return redirect("core:retailer_detail", pk=entry.retailer_id)

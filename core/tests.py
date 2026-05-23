@@ -1207,7 +1207,8 @@ class EntryEditDeleteTests(_ViewBase):
         self.login(self.s1)
         resp = self.client.post(
             f"/entry/jama/{self.payment.pk}/edit/",
-            {"amount": "750", "mode": "cash", "notes": "edited"},
+            {"amount": "750", "mode": "cash", "notes": "edited",
+             "reason": "Typo fix"},
         )
         self.assertEqual(resp.status_code, 302)
         self.payment.refresh_from_db()
@@ -1708,7 +1709,8 @@ class NotificationEnqueueTests(TestCase):
         )
         resp = self.client.post(
             f"/entry/jama/{p.pk}/edit/",
-            data={"amount": "750", "mode": Payment.Mode.CASH, "notes": ""},
+            data={"amount": "750", "mode": Payment.Mode.CASH, "notes": "",
+                  "reason": "miscounted"},
         )
         self.assertEqual(resp.status_code, 302)
         notifs = list(Notification.objects.filter(payment=p))
@@ -1726,7 +1728,8 @@ class NotificationEnqueueTests(TestCase):
         )
         resp = self.client.post(
             f"/entry/jama/{p.pk}/edit/",
-            data={"amount": "500", "mode": Payment.Mode.CASH, "notes": "fixed typo"},
+            data={"amount": "500", "mode": Payment.Mode.CASH,
+                  "notes": "fixed typo", "reason": "typo in notes"},
         )
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(Notification.objects.filter(payment=p).count(), 0)
@@ -1757,3 +1760,97 @@ class NotificationEnqueueTests(TestCase):
         )
         self.assertEqual(resp.status_code, 302)
         self.assertEqual(Notification.objects.count(), 0)
+
+
+class AuditLogReasonTests(TestCase):
+    """Edit and delete forms must capture WHY into AuditLog.reason.
+
+    Fraud-prevention requirement (PLAN §1 + owner ask): the audit trail
+    has to record both before/after AND a human-typed reason.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.salesman = User.objects.create_user(
+            username="rsn-s1", password="x", full_name="Reason One",
+            role=User.Role.SALESMAN,
+        )
+        cls.retailer = Retailer.objects.create(
+            name="Reason Dukaan", phone="9876543210",
+            assigned_salesman=cls.salesman,
+        )
+
+    def setUp(self):
+        from .notifications.factory import reset_cache
+        reset_cache()
+        self.client.force_login(self.salesman)
+
+    def _new_payment(self, amount="500"):
+        return Payment.objects.create(
+            salesman=self.salesman, retailer=self.retailer,
+            amount=Decimal(amount), mode=Payment.Mode.CASH,
+        )
+
+    def test_edit_without_reason_returns_form_error(self):
+        from .models import AuditLog
+        p = self._new_payment()
+        resp = self.client.post(
+            f"/entry/jama/{p.pk}/edit/",
+            data={"amount": "600", "mode": Payment.Mode.CASH, "notes": ""},
+        )
+        # Form invalid → re-render, not redirect.
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Edit ka reason zaroori hai.")
+        p.refresh_from_db()
+        # Amount must not change without a reason.
+        self.assertEqual(p.amount, Decimal("500.00"))
+        # And no UPDATE AuditLog entry must have been written.
+        updates = AuditLog.objects.filter(
+            entity_type="Payment", entity_id=p.pk,
+            action=AuditLog.Action.UPDATE,
+        )
+        self.assertEqual(updates.count(), 0)
+
+    def test_edit_with_reason_writes_reason_to_audit(self):
+        from .models import AuditLog
+        p = self._new_payment()
+        resp = self.client.post(
+            f"/entry/jama/{p.pk}/edit/",
+            data={
+                "amount": "600", "mode": Payment.Mode.CASH, "notes": "",
+                "reason": "Retailer ne 100 extra diya tha",
+            },
+        )
+        self.assertEqual(resp.status_code, 302)
+        audit = AuditLog.objects.get(
+            entity_type="Payment", entity_id=p.pk,
+            action=AuditLog.Action.UPDATE,
+        )
+        self.assertEqual(audit.reason, "Retailer ne 100 extra diya tha")
+        # And the before snapshot is the *pre-edit* state.
+        self.assertEqual(str(audit.before["amount"]), "500.00")
+
+    def test_delete_writes_reason_to_audit(self):
+        from .models import AuditLog
+        p = self._new_payment()
+        resp = self.client.post(
+            f"/entry/jama/{p.pk}/delete/",
+            data={"reason": "Wrong dukaan select kar diya"},
+        )
+        self.assertEqual(resp.status_code, 302)
+        audit = AuditLog.objects.get(
+            entity_type="Payment", entity_id=p.pk,
+            action=AuditLog.Action.DELETE,
+        )
+        self.assertEqual(audit.reason, "Wrong dukaan select kar diya")
+
+    def test_create_does_not_require_reason(self):
+        # The create itself IS the why. Reason is only for edits/deletes.
+        from .models import AuditLog
+        resp = self.client.post(
+            f"/dukaan/{self.retailer.pk}/entry/",
+            data={"amount": "750", "mode": Payment.Mode.CASH, "notes": ""},
+        )
+        self.assertEqual(resp.status_code, 302)
+        audit = AuditLog.objects.get(action=AuditLog.Action.CREATE)
+        self.assertEqual(audit.reason, "")

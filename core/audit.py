@@ -44,12 +44,22 @@ def snapshot(instance) -> dict[str, Any]:
     return out
 
 
-def log_change(*, actor, instance, action: str, before: dict | None = None) -> AuditLog:
+def log_change(
+    *,
+    actor,
+    instance,
+    action: str,
+    before: dict | None = None,
+    reason: str = "",
+) -> AuditLog:
     """Record an AuditLog row for `instance`.
 
     - `actor` may be None (system / unauthenticated context).
     - `action` should be one of AuditLog.Action.* values.
     - `before` is the pre-change snapshot for updates/deletes.
+    - `reason` is the WHY supplied by the operator on edits/deletes.
+      Salesman-facing forms require it; the importer / admin-bulk path
+      passes "" because they don't have a user-supplied reason.
     """
     return AuditLog.objects.create(
         actor=actor if actor and actor.is_authenticated else None,
@@ -58,4 +68,5 @@ def log_change(*, actor, instance, action: str, before: dict | None = None) -> A
         action=action,
         before=before,
         after=snapshot(instance) if action != AuditLog.Action.DELETE else None,
+        reason=reason,
     )
