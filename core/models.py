@@ -108,10 +108,25 @@ class Retailer(models.Model):
         help_text="Salesman this retailer is assigned to. Drives the Dukaan list filter.",
     )
 
+    # Telegram chat_id (numeric, but stored as text for safety against
+    # 64-bit overflow on group/channel IDs). Used by the Telegram provider
+    # when a Payment is recorded. Phone is used by SMS/WhatsApp providers;
+    # the two channels coexist so a provider swap doesn't lose contact info.
+    telegram_chat_id = models.CharField(
+        max_length=32, blank=True,
+        help_text="Telegram chat ID for payment-received notifications.",
+    )
+
     objects = RetailerQuerySet.as_manager()
 
     class Meta:
         ordering = ["name"]
+
+    def save(self, *args, **kwargs):
+        # Canonicalize phone to +91XXXXXXXXXX. Blank stays blank.
+        from .phones import normalize_indian_phone
+        self.phone = normalize_indian_phone(self.phone)
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return self.name
@@ -362,6 +377,10 @@ class AuditLog(models.Model):
     action = models.CharField(max_length=16, choices=Action.choices)
     before = models.JSONField(null=True, blank=True)
     after = models.JSONField(null=True, blank=True)
+    # WHY a payment was edited/deleted. Required by the salesman edit/delete
+    # forms (forms enforce non-blank). Blank in DB so legacy entries
+    # (created before the forms started requiring it) still load.
+    reason = models.TextField(blank=True)
     at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -373,3 +392,83 @@ class AuditLog(models.Model):
 
     def __str__(self) -> str:
         return f"{self.action} {self.entity_type}#{self.entity_id} by {self.actor or 'system'} at {self.at:%Y-%m-%d %H:%M}"
+
+
+# ---------------------------------------------------------------------------
+# Notification — one row per dispatch attempt
+# ---------------------------------------------------------------------------
+
+
+class Notification(models.Model):
+    """One *attempt* to notify a retailer about a payment event.
+
+    Each row is immutable after `status` leaves ``queued``. Failed attempts
+    do not mutate; instead a new row is created with ``previous_attempt``
+    pointing back, forming a chain. Walk the chain to answer "did the
+    retailer ever get notified?" — if any row in the chain is ``sent``, yes.
+
+    The chain is also the audit trail: every error, every backoff, every
+    provider message_id is preserved.
+    """
+
+    class Kind(models.TextChoices):
+        RECEIVED = "received", "Payment received"
+        UPDATED = "updated", "Payment updated"
+        CANCELLED = "cancelled", "Payment cancelled"
+
+    class Channel(models.TextChoices):
+        TELEGRAM = "telegram", "Telegram"
+        SMS = "sms", "SMS"
+        WHATSAPP = "whatsapp", "WhatsApp"
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+        ABANDONED = "abandoned", "Abandoned"
+
+    payment = models.ForeignKey(
+        "Payment",
+        on_delete=models.CASCADE,
+        related_name="notifications",
+    )
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    channel = models.CharField(max_length=16, choices=Channel.choices)
+    address = models.CharField(
+        max_length=64,
+        help_text="Telegram chat_id, +91XXXXXXXXXX phone, or WhatsApp address.",
+    )
+    body = models.TextField()
+    status = models.CharField(
+        max_length=16, choices=Status.choices, default=Status.QUEUED,
+    )
+    provider_message_id = models.CharField(max_length=128, blank=True)
+    error = models.TextField(blank=True)
+
+    # Retry chain: each new try points back at the previous failed try.
+    previous_attempt = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="retries",
+    )
+    attempt_number = models.PositiveSmallIntegerField(default=1)
+
+    # Backoff: dispatcher only picks rows where send_after <= now.
+    send_after = models.DateTimeField(default=timezone.now)
+    attempted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status", "send_after"]),
+            models.Index(fields=["payment", "kind"]),
+        ]
+
+    def __str__(self) -> str:
+        return (
+            f"Notification#{self.pk} {self.kind} via {self.channel} → "
+            f"{self.address} [{self.status} #{self.attempt_number}]"
+        )

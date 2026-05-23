@@ -1353,3 +1353,67 @@ class AuditSnapshotTests(TestCase):
             Retailer.objects.get(pk=snap_before["retailer_id"]).pk,
             self.retailer.pk,
         )
+
+
+class PhoneNormalizationTests(TestCase):
+    """Phone numbers must land in canonical +91XXXXXXXXXX before storage."""
+
+    def test_bare_ten_digits_normalized(self):
+        from .phones import normalize_indian_phone
+        self.assertEqual(normalize_indian_phone("9876543210"), "+919876543210")
+
+    def test_strip_spaces_hyphens_parens(self):
+        from .phones import normalize_indian_phone
+        self.assertEqual(
+            normalize_indian_phone("(98765) 43-210"), "+919876543210"
+        )
+
+    def test_already_canonical(self):
+        from .phones import normalize_indian_phone
+        self.assertEqual(
+            normalize_indian_phone("+919876543210"), "+919876543210"
+        )
+
+    def test_strip_leading_country_code(self):
+        from .phones import normalize_indian_phone
+        self.assertEqual(
+            normalize_indian_phone("91 98765 43210"), "+919876543210"
+        )
+
+    def test_strip_leading_national_zero(self):
+        from .phones import normalize_indian_phone
+        self.assertEqual(
+            normalize_indian_phone("09876543210"), "+919876543210"
+        )
+
+    def test_blank_returns_blank(self):
+        from .phones import normalize_indian_phone
+        self.assertEqual(normalize_indian_phone(""), "")
+        self.assertEqual(normalize_indian_phone(None), "")
+
+    def test_too_short_raises(self):
+        from .phones import normalize_indian_phone
+        with self.assertRaises(ValidationError):
+            normalize_indian_phone("12345")
+
+    def test_invalid_first_digit_raises(self):
+        # Indian mobiles start with 6/7/8/9. Landlines (start with 0 then
+        # area code, or 2-5 directly) aren't mobiles.
+        from .phones import normalize_indian_phone
+        with self.assertRaises(ValidationError):
+            normalize_indian_phone("1234567890")
+        with self.assertRaises(ValidationError):
+            normalize_indian_phone("5876543210")
+
+    def test_retailer_save_canonicalizes(self):
+        r = Retailer.objects.create(name="Dukaan A", phone="9876543210")
+        r.refresh_from_db()
+        self.assertEqual(r.phone, "+919876543210")
+
+    def test_retailer_save_with_blank_phone(self):
+        r = Retailer.objects.create(name="Dukaan B")
+        self.assertEqual(r.phone, "")
+
+    def test_retailer_save_rejects_bad_phone(self):
+        with self.assertRaises(ValidationError):
+            Retailer.objects.create(name="Dukaan C", phone="not-a-number")

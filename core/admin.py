@@ -2,7 +2,7 @@ from django.contrib import admin
 from unfold.admin import ModelAdmin
 
 from .audit import log_change, snapshot
-from .models import AuditLog, Payment, Retailer, Sale, Visit
+from .models import AuditLog, Notification, Payment, Retailer, Sale, Visit
 
 
 class AuditedModelAdmin(ModelAdmin):
@@ -135,11 +135,42 @@ class PaymentAdmin(AuditedModelAdmin):
 
 @admin.register(AuditLog)
 class AuditLogAdmin(ModelAdmin):
-    list_display = ("at", "actor", "action", "entity_type", "entity_id")
+    list_display = ("at", "actor", "action", "entity_type", "entity_id", "reason")
     list_filter = ("action", "entity_type", "actor")
-    search_fields = ("entity_type", "entity_id")
+    search_fields = ("entity_type", "entity_id", "reason")
     date_hierarchy = "at"
-    readonly_fields = ("actor", "entity_type", "entity_id", "action", "before", "after", "at")
+    readonly_fields = ("actor", "entity_type", "entity_id", "action", "before", "after", "reason", "at")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Notification (read-only — dispatched by the dispatch_notifications command)
+# ---------------------------------------------------------------------------
+
+
+@admin.register(Notification)
+class NotificationAdmin(ModelAdmin):
+    list_display = (
+        "created_at", "payment", "kind", "channel",
+        "status", "attempt_number", "send_after", "attempted_at",
+    )
+    list_filter = ("status", "kind", "channel")
+    search_fields = ("address", "payment__retailer__name", "provider_message_id", "error")
+    date_hierarchy = "created_at"
+    readonly_fields = (
+        "payment", "kind", "channel", "address", "body",
+        "status", "provider_message_id", "error",
+        "previous_attempt", "attempt_number",
+        "send_after", "attempted_at", "created_at",
+    )
 
     def has_add_permission(self, request):
         return False
